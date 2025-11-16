@@ -1,0 +1,9 @@
+# clangd
+.cache
+
+# Build
+build
+
+# CMake
+CMakeUserPresets.json
+compile_commands.json
