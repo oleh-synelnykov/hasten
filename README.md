@@ -55,6 +55,12 @@ Debug:
 cmake --build --preset=conan-debug
 ```
 
+#### Run tests
+
+```bash
+./build/<Debug|Release>/test_idl_rules
+```
+
 ## Tooling
 
 ### clangd
@@ -63,4 +69,3 @@ For VSCode-like editors with clangd extension, create a symlink to `compile_comm
 ```bash
 ln -s build/<Debug|Release>/compile_commands.json
 ```
-
