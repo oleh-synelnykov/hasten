@@ -33,26 +33,16 @@ Use `--build=missing` to build any dependencies, if the binaries are not present
 
 #### Configure
 
-Release:
-```bash
-cmake --preset=conan-release .
-```
+By default, conan generates two presets: `conan-release` and `conan-debug`. You can use them to configure the build.
 
-Debug:
 ```bash
-cmake --preset=conan-debug .
+cmake --preset=conan-<release|debug> .
 ```
 
 #### Build
 
-Release:
 ```bash
-cmake --build --preset=conan-release
-```
-
-Debug:
-```bash
-cmake --build --preset=conan-debug
+cmake --build --preset=conan-<release|debug>
 ```
 
 #### Run tests
