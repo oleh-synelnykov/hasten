@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/fusion/include/adapt_struct.hpp>
 #include <boost/variant.hpp>
 #include <boost/variant/recursive_wrapper.hpp>
 
@@ -183,3 +184,21 @@ struct Module {
 };
 
 }  // namespace hasten::idl::ast
+
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::QualifiedIdentifier, parts)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Primitive, kind)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::UserType, name)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Vector, element)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Map, key, value)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Optional, inner)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Attribute, name, value)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Field, id, type, name, default_value, attrs)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Parameter, id, type, name, default_value, attrs)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::ConstantDeclaration, type, name, value)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Enumerator, name, value, attrs)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Enum, name, items)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Struct, name, fields)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Method, kind, name, params, result, attrs)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Interface, name, methods)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Import, path)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Module, name, imports, decls)
