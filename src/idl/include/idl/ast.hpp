@@ -106,7 +106,7 @@ struct Field {
     AttributeList attrs;
 };
 
-struct Param {
+struct Parameter {
     std::uint64_t id = 0;
     Type type;
     std::string name;
@@ -150,7 +150,7 @@ enum class MethodKind { Rpc, Oneway, Stream, Notify };
 struct Method {
     MethodKind kind = MethodKind::Rpc;
     std::string name;
-    std::vector<Param> params;
+    std::vector<Parameter> params;
     std::optional<Result> result;
     AttributeList attrs;
 };

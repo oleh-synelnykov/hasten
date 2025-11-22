@@ -10,6 +10,6 @@ namespace hasten::idl::parser
 namespace x3 = boost::spirit::x3;
 
 using iterator_type = std::string::const_iterator;
-using context_type = x3::phrase_parse_context<decltype(impl::skipper)>::type;
+using context_type = x3::phrase_parse_context<decltype(rule::skipper)>::type;
 
 }  // namespace hasten::idl::parser

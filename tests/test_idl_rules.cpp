@@ -49,6 +49,10 @@ TEST(IdlRule, ParseIntLiteralDecimal) {
     int64_t i{};
     ASSERT_TRUE(parse_rule("123", integer_literal(), i));
     EXPECT_EQ(i, 123);
+    ASSERT_TRUE(parse_rule("-321", integer_literal(), i));
+    EXPECT_EQ(i, -321);
+    ASSERT_TRUE(parse_rule("+456", integer_literal(), i));
+    EXPECT_EQ(i, 456);
 }
 
 TEST(IdlRule, ParseIntLiteralHex) {
@@ -441,15 +445,38 @@ TEST(IdlRule, ParseType) {
 }
 
 TEST(IdlRule, ParseName) {
-    {
-        std::string id;
-        EXPECT_FALSE(parse_rule("vector", name(), id));
-    }
-    {
-        std::string id;
-        EXPECT_TRUE(parse_rule("foo_bar123", name(), id));
-        EXPECT_EQ(id, "foo_bar123");
-    }
+    std::string id;
+    EXPECT_TRUE(parse_rule("foo_bar123", name(), id));
+    EXPECT_EQ(id, "foo_bar123");
+
+    // Check that reserved keywords are not allowed
+    EXPECT_FALSE(parse_rule("module", name(), id));
+    EXPECT_FALSE(parse_rule("import", name(), id));
+    EXPECT_FALSE(parse_rule("interface", name(), id));
+    EXPECT_FALSE(parse_rule("struct", name(), id));
+    EXPECT_FALSE(parse_rule("enum", name(), id));
+    EXPECT_FALSE(parse_rule("const", name(), id));
+    EXPECT_FALSE(parse_rule("rpc", name(), id));
+    EXPECT_FALSE(parse_rule("oneway", name(), id));
+    EXPECT_FALSE(parse_rule("stream", name(), id));
+    EXPECT_FALSE(parse_rule("notify", name(), id));
+    EXPECT_FALSE(parse_rule("vector", name(), id));
+    EXPECT_FALSE(parse_rule("map", name(), id));
+    EXPECT_FALSE(parse_rule("optional", name(), id));
+    EXPECT_FALSE(parse_rule("null", name(), id));
+    EXPECT_FALSE(parse_rule("bool", name(), id));
+    EXPECT_FALSE(parse_rule("i8", name(), id));
+    EXPECT_FALSE(parse_rule("i16", name(), id));
+    EXPECT_FALSE(parse_rule("i32", name(), id));
+    EXPECT_FALSE(parse_rule("i64", name(), id));
+    EXPECT_FALSE(parse_rule("u8", name(), id));
+    EXPECT_FALSE(parse_rule("u16", name(), id));
+    EXPECT_FALSE(parse_rule("u32", name(), id));
+    EXPECT_FALSE(parse_rule("u64", name(), id));
+    EXPECT_FALSE(parse_rule("f32", name(), id));
+    EXPECT_FALSE(parse_rule("f64", name(), id));
+    EXPECT_FALSE(parse_rule("string", name(), id));
+    EXPECT_FALSE(parse_rule("bytes", name(), id));
 }
 
 TEST(IdlRule, ParseAttribute) {
@@ -603,7 +630,7 @@ TEST(IdlRule, ParseField) {
 
 TEST(IdlRule, ParseParam) {
     {
-        ast::Param t;
+        ast::Parameter t;
         ASSERT_TRUE(parse_rule("5: bool x", param(), t));
         EXPECT_EQ(t.id, 5);
 
@@ -616,7 +643,7 @@ TEST(IdlRule, ParseParam) {
         EXPECT_TRUE(t.attrs.empty());
     }
     {
-        ast::Param t;
+        ast::Parameter t;
         ASSERT_TRUE(parse_rule("5: bool x = true", param(), t));
         EXPECT_EQ(t.id, 5);
 
@@ -633,7 +660,7 @@ TEST(IdlRule, ParseParam) {
     }
     {
         // with attribute list
-        ast::Param t;
+        ast::Parameter t;
         ASSERT_TRUE(parse_rule("5: bool x = true [a=true, b=123, c=\"123\", d=b\"DEADBEEF\"]", param(), t));
         EXPECT_EQ(t.id, 5);
 
@@ -1121,7 +1148,7 @@ TEST(IdlRule, ParseDecl) {
         ast::Declaration t;
         ASSERT_TRUE(parse_rule(R"(
             const bool x = true;
-        )", decl(), t));
+        )", declaration(), t));
         auto* const_decl = boost::get<ast::ConstantDeclaration>(&t);
         ASSERT_NE(const_decl, nullptr);
         EXPECT_EQ(const_decl->name, "x");
@@ -1136,7 +1163,7 @@ TEST(IdlRule, ParseDecl) {
         ast::Declaration t;
         ASSERT_TRUE(parse_rule(R"(
             enum E { A, B, C };
-        )", decl(), t));
+        )", declaration(), t));
         auto* enum_decl = boost::get<ast::Enum>(&t);
         ASSERT_NE(enum_decl, nullptr);
         EXPECT_EQ(enum_decl->name, "E");
@@ -1149,7 +1176,7 @@ TEST(IdlRule, ParseDecl) {
         ast::Declaration t;
         ASSERT_TRUE(parse_rule(R"(
             struct S { 1: i32 x; };
-        )", decl(), t));
+        )", declaration(), t));
         auto* struct_decl = boost::get<ast::Struct>(&t);
         ASSERT_NE(struct_decl, nullptr);
         EXPECT_EQ(struct_decl->name, "S");
@@ -1164,7 +1191,7 @@ TEST(IdlRule, ParseDecl) {
         ast::Declaration t;
         ASSERT_TRUE(parse_rule(R"(
             interface I { rpc method (1: i32 x) -> i32; };
-        )", decl(), t));
+        )", declaration(), t));
         auto* interface_decl = boost::get<ast::Interface>(&t);
         ASSERT_NE(interface_decl, nullptr);
         EXPECT_EQ(interface_decl->name, "I");

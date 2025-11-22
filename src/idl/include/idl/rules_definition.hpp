@@ -17,7 +17,7 @@
 namespace hasten::idl::parser
 {
 
-namespace impl
+namespace rule
 {
 
 namespace x3 = boost::spirit::x3;
@@ -83,7 +83,7 @@ struct reserved_init {
       ("vector")
       ("map")
       ("optional")
-      ("nil")
+      ("null")
       // primitives
       ("bool")
       ("i8")
@@ -102,10 +102,10 @@ struct reserved_init {
 } reserved_init_instance;
 
 // skipper
-LineCommentRuleType line_comment = "line_comment";
-BlockCommentRuleType block_comment = "block_comment";
-CommentRuleType comment = "comment";
-SkipperRuleType skipper = "skipper";
+LineComment line_comment = "line_comment";
+BlockComment block_comment = "block_comment";
+Comment comment = "comment";
+Skipper skipper = "skipper";
 
 const auto line_comment_def = x3::lexeme["//" >> *(x3::char_ - x3::eol) >> (x3::eol | x3::eoi)];
 const auto block_comment_def = x3::lexeme["/*" >> *(x3::char_ - "*/") >> "*/"];
@@ -113,15 +113,15 @@ const auto comment_def = line_comment | block_comment;
 const auto skipper_def = comment | x3::space;
 
 // tokens
-IdentifierRuleType identifier = "ident";
-NameRuleType name = "name";
-QualifiedIdentifierRuleType qualified_identifier = "qident";
-StringLiteralRuleType string_lit = "string_lit";
-BooleanLiteralRuleType bool_lit = "bool_lit";
-IntegerLiteralRuleType int_lit = "int_lit";
-FloatLiteralRuleType float_lit = "float_lit";
-BytesLiteralRuleType bytes_lit = "bytes_lit";
-ConstValueRuleType const_value = "const_value";
+Identifier identifier = "ident";
+Name name = "name";
+QualifiedIdentifier qualified_identifier = "qident";
+StringLiteral string_lit = "string_lit";
+BooleanLiteral bool_lit = "bool_lit";
+IntegerLiteral int_lit = "int_lit";
+FloatLiteral float_lit = "float_lit";
+BytesLiteral bytes_lit = "bytes_lit";
+ConstantValue const_value = "const_value";
 
 // identifiers
 auto const identifier_def =
@@ -250,7 +250,7 @@ auto const bytes_lit_def =
         _val(ctx) = std::move(out);
     })];
 
-// const value: nil | bool | int | float | string | qident | bytes
+// const value: null | bool | int | float | string | qident | bytes
 auto const const_value_def =
     (kw_null    >> x3::attr(ast::ConstantValue{ast::Null{}}))
     | bool_lit
@@ -261,12 +261,12 @@ auto const const_value_def =
     | qualified_identifier;
 
 // -------------- type rules --------------
-TypeRuleType type = "type";
-PrimitiveTypeRuleType prim_type = "prim_type";
-UserTypeRuleType user_type = "user_type";
-VectorTypeRuleType vec_type = "vec_type";
-MapTypeRuleType map_type = "map_type";
-OptionalTypeRuleType opt_type = "opt_type";
+Type type = "type";
+PrimitiveType prim_type = "prim_type";
+UserType user_type = "user_type";
+VectorType vec_type = "vec_type";
+MapType map_type = "map_type";
+OptionalType opt_type = "opt_type";
 
 auto const prim_type_def =
     (kw_bool   >> x3::attr(ast::Primitive{ast::PrimitiveKind::Bool}))
@@ -328,8 +328,8 @@ auto const type_def =
     | user_type;
 
 // -------------- attributes --------------
-AttributeRuleType attribute = "attribute";
-AttributeListRuleType attribute_list = "attribute_list";
+Attribute attribute = "attribute";
+AttributeList attribute_list = "attribute_list";
 
 auto const attribute_def =
     (identifier >> -('=' >> const_value))
@@ -349,11 +349,11 @@ auto const attribute_list_def =
     '[' >> (attribute % ',') >> ']';
 
 // -------------- fields / params / results --------------
-FieldRuleType field = "field";
-ParamRuleType param = "param";
-ResultRuleType result = "result";
-RetFieldRuleType ret_field = "ret_field";
-RetFieldsRuleType ret_fields = "ret_fields";
+Field field = "field";
+Parameter param = "param";
+Result result = "result";
+ReturnField ret_field = "ret_field";
+ReturnFields ret_fields = "ret_fields";
 
 auto const field_def =
     (int_lit
@@ -386,7 +386,7 @@ auto const param_def =
         >> -('=' >> const_value)
         >> -attribute_list)
     [([](auto& ctx){
-        ast::Param p {
+        ast::Parameter p {
             .id = static_cast<std::uint64_t>(boost::fusion::at_c<0>(_attr(ctx))),
             .type = std::move(boost::fusion::at_c<1>(_attr(ctx))),
             .name = std::move(boost::fusion::at_c<2>(_attr(ctx))),
@@ -427,14 +427,14 @@ auto const ret_fields_def =
     ('(' >> ret_field % ',' >> ')');
 
 // -------------- declarations --------------
-ConstDeclRuleType const_decl = "const_decl";
-EnumItemRuleType enum_item  = "enum_item";
-EnumDeclRuleType enum_decl  = "enum_decl";
-StructDeclRuleType struct_decl= "struct_decl";
-MethodRuleType method     = "method";
-MethodKindRuleType method_kind = "method_kind";
-InterfaceDeclRuleType interface_decl = "interface_decl";
-DeclRuleType decl       = "decl";
+Constant const_decl = "const_decl";
+EnumItem enum_item  = "enum_item";
+Enum enum_decl  = "enum_decl";
+Struct struct_decl= "struct_decl";
+Method method     = "method";
+MethodKind method_kind = "method_kind";
+Interface interface_decl = "interface_decl";
+Declaration decl       = "decl";
 
 auto const const_decl_def =
     (kw_const >> type >> name >> '=' >> const_value >> ';')
@@ -546,9 +546,9 @@ auto const decl_def =
     | interface_decl;
 
 // -------------- imports / module / file --------------
-ImportRuleType import = "import";
-ModuleRuleType module = "module";
-ModuleDeclRuleType module_decl = "module_decl";
+Import import = "import";
+Module module = "module";
+ModuleDeclaration module_decl = "module_decl";
 
 auto const import_def =
     (kw_import >> string_lit >> ';')
@@ -618,191 +618,191 @@ BOOST_SPIRIT_DEFINE(
 );
 // clang-format on
 
-}  // namespace impl
+}  // namespace rule
 
-impl::LineCommentRuleType line_comment()
+rule::LineComment line_comment()
 {
-    return impl::line_comment;
+    return rule::line_comment;
 }
 
-impl::BlockCommentRuleType block_comment()
+rule::BlockComment block_comment()
 {
-    return impl::block_comment;
+    return rule::block_comment;
 }
 
-impl::CommentRuleType comment()
+rule::Comment comment()
 {
-    return impl::comment;
+    return rule::comment;
 }
 
-impl::SkipperRuleType skipper()
+rule::Skipper skipper()
 {
-    return impl::skipper;
+    return rule::skipper;
 }
 
-impl::IdentifierRuleType identifier()
+rule::Identifier identifier()
 {
-    return impl::identifier;
+    return rule::identifier;
 }
 
-impl::NameRuleType name()
+rule::Name name()
 {
-    return impl::name;
+    return rule::name;
 }
 
-impl::QualifiedIdentifierRuleType qualified_identifier()
+rule::QualifiedIdentifier qualified_identifier()
 {
-    return impl::qualified_identifier;
+    return rule::qualified_identifier;
 }
 
-impl::StringLiteralRuleType string_literal()
+rule::StringLiteral string_literal()
 {
-    return impl::string_lit;
+    return rule::string_lit;
 }
 
-impl::BooleanLiteralRuleType boolean_literal()
+rule::BooleanLiteral boolean_literal()
 {
-    return impl::bool_lit;
+    return rule::bool_lit;
 }
 
-impl::IntegerLiteralRuleType integer_literal()
+rule::IntegerLiteral integer_literal()
 {
-    return impl::int_lit;
+    return rule::int_lit;
 }
 
-impl::FloatLiteralRuleType float_literal()
+rule::FloatLiteral float_literal()
 {
-    return impl::float_lit;
+    return rule::float_lit;
 }
 
-impl::BytesLiteralRuleType bytes_literal()
+rule::BytesLiteral bytes_literal()
 {
-    return impl::bytes_lit;
+    return rule::bytes_lit;
 }
 
-impl::ConstValueRuleType const_value()
+rule::ConstantValue const_value()
 {
-    return impl::const_value;
+    return rule::const_value;
 }
 
-impl::PrimitiveTypeRuleType primitive_type()
+rule::PrimitiveType primitive_type()
 {
-    return impl::prim_type;
+    return rule::prim_type;
 }
 
-impl::UserTypeRuleType user_type()
+rule::UserType user_type()
 {
-    return impl::user_type;
+    return rule::user_type;
 }
 
-impl::VectorTypeRuleType vector_type()
+rule::VectorType vector_type()
 {
-    return impl::vec_type;
+    return rule::vec_type;
 }
 
-impl::MapTypeRuleType map_type()
+rule::MapType map_type()
 {
-    return impl::map_type;
+    return rule::map_type;
 }
 
-impl::OptionalTypeRuleType optional_type()
+rule::OptionalType optional_type()
 {
-    return impl::opt_type;
+    return rule::opt_type;
 }
 
-impl::TypeRuleType type()
+rule::Type type()
 {
-    return impl::type;
+    return rule::type;
 }
 
-impl::AttributeRuleType attribute()
+rule::Attribute attribute()
 {
-    return impl::attribute;
+    return rule::attribute;
 }
 
-impl::AttributeListRuleType attribute_list()
+rule::AttributeList attribute_list()
 {
-    return impl::attribute_list;
+    return rule::attribute_list;
 }
 
-impl::FieldRuleType field()
+rule::Field field()
 {
-    return impl::field;
+    return rule::field;
 }
 
-impl::ParamRuleType param()
+rule::Parameter param()
 {
-    return impl::param;
+    return rule::param;
 }
 
-impl::ResultRuleType result()
+rule::Result result()
 {
-    return impl::result;
+    return rule::result;
 }
 
-impl::RetFieldRuleType ret_field()
+rule::ReturnField ret_field()
 {
-    return impl::ret_field;
+    return rule::ret_field;
 }
 
-impl::RetFieldsRuleType ret_fields()
+rule::ReturnFields ret_fields()
 {
-    return impl::ret_fields;
+    return rule::ret_fields;
 }
 
-impl::ConstDeclRuleType const_decl()
+rule::Constant const_decl()
 {
-    return impl::const_decl;
+    return rule::const_decl;
 }
 
-impl::EnumItemRuleType enum_item()
+rule::EnumItem enum_item()
 {
-    return impl::enum_item;
+    return rule::enum_item;
 }
 
-impl::EnumDeclRuleType enum_decl()
+rule::Enum enum_decl()
 {
-    return impl::enum_decl;
+    return rule::enum_decl;
 }
 
-impl::StructDeclRuleType struct_decl()
+rule::Struct struct_decl()
 {
-    return impl::struct_decl;
+    return rule::struct_decl;
 }
 
-impl::MethodRuleType method()
+rule::Method method()
 {
-    return impl::method;
+    return rule::method;
 }
 
-impl::MethodKindRuleType method_kind()
+rule::MethodKind method_kind()
 {
-    return impl::method_kind;
+    return rule::method_kind;
 }
 
-impl::InterfaceDeclRuleType interface_decl()
+rule::Interface interface_decl()
 {
-    return impl::interface_decl;
+    return rule::interface_decl;
 }
 
-impl::DeclRuleType decl()
+rule::Declaration declaration()
 {
-    return impl::decl;
+    return rule::decl;
 }
 
-impl::ImportRuleType import()
+rule::Import import()
 {
-    return impl::import;
+    return rule::import;
 }
 
-impl::ModuleRuleType module()
+rule::Module module()
 {
-    return impl::module;
+    return rule::module;
 }
 
-impl::ModuleDeclRuleType module_decl()
+rule::ModuleDeclaration module_decl()
 {
-    return impl::module_decl;
+    return rule::module_decl;
 }
 
 }  // namespace hasten::idl::parser
