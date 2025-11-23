@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "idl/ast.hpp"
+#include "idl/config.hpp"
 #include "idl/rules.hpp"
 
 using namespace hasten::idl;
@@ -15,10 +16,14 @@ testing::AssertionResult parse_rule(const std::string& input,
                                        Rule const& rule,
                                        Attr& out)
 {
-    using It = std::string::const_iterator;
-    It first = input.begin(), last = input.end();
+    auto first = input.begin();
+    auto last = input.end();
 
-    bool ok = phrase_parse(first, last, rule, skipper(), out);
+    // error handling
+    error_handler_type err_handler(first, last, std::cerr);
+    auto const with_err = x3::with<x3::error_handler_tag>(std::ref(err_handler))[ rule ];
+
+    bool ok = phrase_parse(first, last, with_err, skipper(), out);
 
     if (!ok) {
         return testing::AssertionFailure()

@@ -1,4 +1,5 @@
 #include "idl/config.hpp"
+#include "idl/rules_definition.hpp"
 
 #include <boost/spirit/home/x3.hpp>
 

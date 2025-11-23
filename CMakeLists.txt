@@ -26,16 +26,8 @@ target_link_libraries(hasten
     spdlog::spdlog
 )
 
-# Hasten IDL rules test executable
-add_executable(test_idl_rules
-    tests/test_idl_rules.cpp
-)
-
-target_link_libraries(test_idl_rules
-    PRIVATE
-        hasten_idl
-        GTest::gtest_main
-)
+# Tests
+add_subdirectory(tests)
 
 install(TARGETS hasten DESTINATION "."
     RUNTIME DESTINATION bin

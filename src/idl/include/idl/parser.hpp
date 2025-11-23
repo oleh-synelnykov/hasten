@@ -5,6 +5,6 @@
 namespace hasten::idl::parser
 {
 
-bool parse_file(std::string_view input, ast::Module& out, std::string* error = nullptr);
+bool parse_file(const std::string& input, ast::Module& out, std::string* error = nullptr);
 
 }  // namespace hasten::idl::parser
