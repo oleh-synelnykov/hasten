@@ -4,7 +4,7 @@ from conan.tools.cmake import CMakeToolchain, CMake, cmake_layout, CMakeDeps
 
 class hastenRecipe(ConanFile):
     name = "hasten"
-    version = "2.0"
+    version = "2.0.0"
     package_type = "application"
 
     # Optional metadata
@@ -32,6 +32,9 @@ class hastenRecipe(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+        tc.preprocessor_definitions["HASTEN_VERSION_MAJOR"] = "2"
+        tc.preprocessor_definitions["HASTEN_VERSION_MINOR"] = "0"
+        tc.preprocessor_definitions["HASTEN_VERSION_PATCH"] = "0"
         tc.generate()
 
     def build(self):
