@@ -161,6 +161,7 @@ struct Method : PositionTaggedNode {
 struct Interface : PositionTaggedNode {
     std::string name;
     std::vector<Method> methods;
+    AttributeList attrs;
 };
 
 // Any top-level declaration
@@ -201,6 +202,6 @@ BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Enumerator, name, value, attrs)
 BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Enum, name, items)
 BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Struct, name, fields)
 BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Method, kind, name, params, result, attrs)
-BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Interface, name, methods)
+BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Interface, name, attrs, methods)
 BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Import, path)
 BOOST_FUSION_ADAPT_STRUCT(hasten::idl::ast::Module, name, imports, decls)

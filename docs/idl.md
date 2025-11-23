@@ -93,7 +93,7 @@ enum_item             ::= identifier ('=' integer_literal)? attribute_list?
 struct                ::= 'struct' name '{' field* '}'
 field                 ::= integer_literal ':' type name default_opt attribute_list? ';'
 
-interface             ::= 'interface' name '{' method* '}'
+interface             ::= 'interface' name attribute_list? '{' method* '}'
 
 method                ::= method_kind name '(' parameter_list? ')' result? attribute_list? ';'
 method_kind           ::= 'rpc' | 'oneway' | 'stream' | 'notify'

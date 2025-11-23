@@ -223,3 +223,46 @@ TEST(Parser, ParseModuleFailureReportsError) {
         EXPECT_NE(error.find("Expected qualified identifier"), std::string::npos);
     }
 }
+
+TEST(Parser, ParseInterfaceWithErrors) {
+    ast::Module m;
+    std::string error;
+    {
+        // interface with no name
+        EXPECT_FALSE(parse_file(R"(
+            module test; // module declaration is a must
+            interface {
+                rpc bar() -> (1:string);
+            };)", m, &error));
+        ASSERT_FALSE(error.empty());
+        EXPECT_NE(error.find("Expected identifier"), std::string::npos) << error;
+    }
+    {
+        // interface with no body
+        EXPECT_FALSE(parse_file(R"(
+            module test;
+            interface foo;
+        )", m, &error));
+        ASSERT_FALSE(error.empty());
+        EXPECT_NE(error.find("Expected '{'"), std::string::npos) << error;
+    }
+    {
+        // interface with parentheses instead of braces
+        EXPECT_FALSE(parse_file(R"(
+            module test;
+            interface foo ( rpc bar() -> (1:string) );
+        )", m, &error));
+        ASSERT_FALSE(error.empty());
+        EXPECT_NE(error.find("Expected '{'"), std::string::npos) << error;
+    }
+    {
+        // interface body unclosed
+        EXPECT_FALSE(parse_file(R"(
+            module test;
+            interface foo {
+                rpc bar() -> (1:string);
+        )", m, &error));
+        ASSERT_FALSE(error.empty());
+        EXPECT_NE(error.find("Expected '}'"), std::string::npos) << error;
+    }
+}

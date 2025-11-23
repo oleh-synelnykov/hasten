@@ -48,4 +48,7 @@ BOOST_SPIRIT_INSTANTIATE(Module, iterator_type, context_type);
 struct ModuleDeclarationRuleClass : GenericParsingErrorHandler, x3::annotate_on_success {
 };
 
+struct InterfaceRuleClass : GenericParsingErrorHandler, x3::annotate_on_success {
+};
+
 }  // namespace hasten::idl::parser::rule

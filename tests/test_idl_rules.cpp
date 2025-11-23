@@ -1024,7 +1024,7 @@ TEST(IdlRule, ParseMethod) {
 }
 
 
-TEST(IdlRule, ParseInterfaceDecl) {
+TEST(IdlRule, ParseInterface) {
     {
         ast::Interface t;
         ASSERT_TRUE(parse_rule(R"(
@@ -1034,7 +1034,7 @@ TEST(IdlRule, ParseInterfaceDecl) {
                 stream method3 ( 1: i32 x ) -> ( 1: i32 y, 2: f64 z );
                 notify method4 ( 1: bool b, 2: i64 y );
             };
-        )", interface_decl(), t));
+        )", interface(), t));
         EXPECT_EQ(t.name, "MyInterface");
         ASSERT_EQ(t.methods.size(), 4);
 
@@ -1212,20 +1212,20 @@ TEST(IdlRule, ParseDecl) {
         ASSERT_TRUE(parse_rule(R"(
             interface I { rpc method (1: i32 x) -> i32; };
         )", declaration(), t));
-        auto* interface_decl = boost::get<ast::Interface>(&t);
-        ASSERT_NE(interface_decl, nullptr);
-        EXPECT_EQ(interface_decl->name, "I");
-        ASSERT_EQ(interface_decl->methods.size(), 1);
-        EXPECT_EQ(interface_decl->methods[0].name, "method");
-        EXPECT_EQ(interface_decl->methods[0].kind, ast::MethodKind::Rpc);
-        ASSERT_EQ(interface_decl->methods[0].params.size(), 1);
-        EXPECT_EQ(interface_decl->methods[0].params[0].id, 1);
-        EXPECT_EQ(interface_decl->methods[0].params[0].name, "x");
-        auto* type = boost::get<ast::Primitive>(&interface_decl->methods[0].params[0].type);
+        auto* interface = boost::get<ast::Interface>(&t);
+        ASSERT_NE(interface, nullptr);
+        EXPECT_EQ(interface->name, "I");
+        ASSERT_EQ(interface->methods.size(), 1);
+        EXPECT_EQ(interface->methods[0].name, "method");
+        EXPECT_EQ(interface->methods[0].kind, ast::MethodKind::Rpc);
+        ASSERT_EQ(interface->methods[0].params.size(), 1);
+        EXPECT_EQ(interface->methods[0].params[0].id, 1);
+        EXPECT_EQ(interface->methods[0].params[0].name, "x");
+        auto* type = boost::get<ast::Primitive>(&interface->methods[0].params[0].type);
         ASSERT_NE(type, nullptr);
         EXPECT_EQ(type->kind, ast::PrimitiveKind::I32);
-        ASSERT_TRUE(interface_decl->methods[0].result.has_value());
-        ast::Result& result = interface_decl->methods[0].result.value();
+        ASSERT_TRUE(interface->methods[0].result.has_value());
+        ast::Result& result = interface->methods[0].result.value();
         EXPECT_EQ(result.which(), 0);
         auto* result_type = boost::get<ast::Type>(&result);
         ASSERT_NE(result_type, nullptr);
@@ -1276,16 +1276,16 @@ TEST(IdlRule, ParseModule) {
         type = boost::get<ast::Primitive>(&struct_decl->fields[0].type);
         ASSERT_NE(type, nullptr);
         EXPECT_EQ(type->kind, ast::PrimitiveKind::I32);
-        auto* interface_decl = boost::get<ast::Interface>(&t.decls[3]);
-        ASSERT_NE(interface_decl, nullptr);
-        EXPECT_EQ(interface_decl->name, "I");
-        ASSERT_EQ(interface_decl->methods.size(), 1);
-        EXPECT_EQ(interface_decl->methods[0].name, "method");
-        EXPECT_EQ(interface_decl->methods[0].kind, ast::MethodKind::Rpc);
-        ASSERT_EQ(interface_decl->methods[0].params.size(), 1);
-        EXPECT_EQ(interface_decl->methods[0].params[0].id, 1);
-        EXPECT_EQ(interface_decl->methods[0].params[0].name, "x");
-        type = boost::get<ast::Primitive>(&interface_decl->methods[0].params[0].type);
+        auto* interface = boost::get<ast::Interface>(&t.decls[3]);
+        ASSERT_NE(interface, nullptr);
+        EXPECT_EQ(interface->name, "I");
+        ASSERT_EQ(interface->methods.size(), 1);
+        EXPECT_EQ(interface->methods[0].name, "method");
+        EXPECT_EQ(interface->methods[0].kind, ast::MethodKind::Rpc);
+        ASSERT_EQ(interface->methods[0].params.size(), 1);
+        EXPECT_EQ(interface->methods[0].params[0].id, 1);
+        EXPECT_EQ(interface->methods[0].params[0].name, "x");
+        type = boost::get<ast::Primitive>(&interface->methods[0].params[0].type);
         ASSERT_NE(type, nullptr);
         EXPECT_EQ(type->kind, ast::PrimitiveKind::I32);
     }

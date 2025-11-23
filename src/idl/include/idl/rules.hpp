@@ -147,7 +147,7 @@ rule::Enum enum_decl();
 rule::Struct struct_decl();
 rule::Method method();
 rule::MethodKind method_kind();
-rule::Interface interface_decl();
+rule::Interface interface();
 rule::Declaration declaration();
 rule::Import import();
 rule::Module module();

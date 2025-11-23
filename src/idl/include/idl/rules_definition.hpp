@@ -388,7 +388,7 @@ const auto method_kind_def =
 const auto method_def =
     method_kind >> name >> '(' >> params_or_empty >> ')' >> -("->" >> result) >> attribute_list_or_empty >> ';';
 
-const auto interface_decl_def = kw_interface >> identifier >> '{' >> *method >> '}' >> -x3::lit(';');
+const auto interface_decl_def = kw_interface > identifier > attribute_list_or_empty > '{' > *method > '}' > -x3::lit(';');
 
 const auto decl_def =
     const_decl
@@ -616,7 +616,7 @@ rule::MethodKind method_kind()
     return rule::method_kind;
 }
 
-rule::Interface interface_decl()
+rule::Interface interface()
 {
     return rule::interface_decl;
 }
