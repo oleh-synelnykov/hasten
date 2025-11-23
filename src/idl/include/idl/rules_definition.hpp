@@ -345,9 +345,7 @@ const auto param_def =
 
 const auto params_or_empty = (param % ',') | x3::attr(std::vector<ast::Parameter>{});
 
-const auto result_def =
-    ( type [([](auto& ctx){ _val(ctx) = ast::Result{ .is_tuple = false, .single = std::move(_attr(ctx)) }; })] )
-    | ( ret_fields [([](auto& ctx){ _val(ctx) = ast::Result{ .is_tuple = true, .tuple_fields = std::move(_attr(ctx)) }; })] );
+const auto result_def = type | ret_fields;
 
 const auto ret_field_def =
     int_lit

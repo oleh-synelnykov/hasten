@@ -115,12 +115,10 @@ struct Parameter {
     AttributeList attrs;
 };
 
-// result can be: single type OR tuple-like fields
-struct Result {
-    bool is_tuple = false;
-    Type single;                      // used when !is_tuple
-    std::vector<Field> tuple_fields;  // used when is_tuple
-};
+using Result = boost::variant<
+    Type,
+    std::vector<Field>
+>;
 
 // ---------- declarations ----------
 

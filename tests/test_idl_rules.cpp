@@ -743,26 +743,28 @@ TEST(IdlRule, ParseResult) {
     {
         ast::Result t;
         ASSERT_TRUE(parse_rule("bool", result(), t));
-        EXPECT_EQ(t.is_tuple, false);
-        auto* type = boost::get<ast::Primitive>(&t.single);
-        ASSERT_NE(type, nullptr);
-        EXPECT_EQ(type->kind, ast::PrimitiveKind::Bool);
+        EXPECT_EQ(t.which(), 0);
+        auto* type = boost::get<ast::Type>(&t);
+        auto* primitive = boost::get<ast::Primitive>(type);
+        ASSERT_NE(primitive, nullptr);
+        EXPECT_EQ(primitive->kind, ast::PrimitiveKind::Bool);
     }
     {
         ast::Result t;
         ASSERT_TRUE(parse_rule("(1: bool x, 2: i64 y)", result(), t));
-        EXPECT_EQ(t.is_tuple, true);
-        ASSERT_EQ(t.tuple_fields.size(), 2);
+        EXPECT_EQ(t.which(), 1);
+        auto* fields = boost::get<std::vector<ast::Field>>(&t);
+        ASSERT_EQ(fields->size(), 2);
 
-        EXPECT_EQ(t.tuple_fields[0].id, 1);
-        EXPECT_EQ(t.tuple_fields[0].name, "x");
-        auto* type = boost::get<ast::Primitive>(&t.tuple_fields[0].type);
+        EXPECT_EQ(fields->at(0).id, 1);
+        EXPECT_EQ(fields->at(0).name, "x");
+        auto* type = boost::get<ast::Primitive>(&fields->at(0).type);
         ASSERT_NE(type, nullptr);
         EXPECT_EQ(type->kind, ast::PrimitiveKind::Bool);
 
-        EXPECT_EQ(t.tuple_fields[1].id, 2);
-        EXPECT_EQ(t.tuple_fields[1].name, "y");
-        type = boost::get<ast::Primitive>(&t.tuple_fields[1].type);
+        EXPECT_EQ(fields->at(1).id, 2);
+        EXPECT_EQ(fields->at(1).name, "y");
+        type = boost::get<ast::Primitive>(&fields->at(1).type);
         ASSERT_NE(type, nullptr);
         EXPECT_EQ(type->kind, ast::PrimitiveKind::I64);
     }
@@ -970,10 +972,12 @@ TEST(IdlRule, ParseMethod) {
         EXPECT_EQ(*attr_value, true);
 
         EXPECT_TRUE(t.result.has_value());
-        EXPECT_FALSE(t.result->is_tuple);
-        auto* result_type = boost::get<ast::Primitive>(&t.result->single);
+        EXPECT_EQ(t.result->which(), 0);
+        auto* result_type = boost::get<ast::Type>(&t.result.value());
         ASSERT_NE(result_type, nullptr);
-        EXPECT_EQ(result_type->kind, ast::PrimitiveKind::Bool);
+        auto* primitive = boost::get<ast::Primitive>(result_type);
+        ASSERT_NE(primitive, nullptr);
+        EXPECT_EQ(primitive->kind, ast::PrimitiveKind::Bool);
     }
     {
         // oneway, default param value and no result
@@ -1041,10 +1045,12 @@ TEST(IdlRule, ParseInterfaceDecl) {
             EXPECT_EQ(*attr_value, true);
 
             ASSERT_TRUE(method1.result.has_value());
-            EXPECT_FALSE(method1.result->is_tuple);
-            type = boost::get<ast::Primitive>(&method1.result->single);
-            ASSERT_NE(type, nullptr);
-            EXPECT_EQ(type->kind, ast::PrimitiveKind::Bool);
+            EXPECT_EQ(method1.result->which(), 0);
+            auto* result_type = boost::get<ast::Type>(&method1.result.value());
+            ASSERT_NE(result_type, nullptr);
+            auto* primitive = boost::get<ast::Primitive>(result_type);
+            ASSERT_NE(primitive, nullptr);
+            EXPECT_EQ(primitive->kind, ast::PrimitiveKind::Bool);
         }
 
         {
@@ -1069,23 +1075,24 @@ TEST(IdlRule, ParseInterfaceDecl) {
             EXPECT_TRUE(method3.params[0].attrs.empty());
 
             ASSERT_TRUE(method3.result.has_value());
-            EXPECT_TRUE(method3.result->is_tuple);
-            ASSERT_EQ(method3.result->tuple_fields.size(), 2);
-            EXPECT_EQ(method3.result->tuple_fields[0].id, 1);
-            EXPECT_EQ(method3.result->tuple_fields[0].name, "y");
-            type = boost::get<ast::Primitive>(&method3.result->tuple_fields[0].type);
+            EXPECT_EQ(method3.result->which(), 1);
+            auto* tuple_result = boost::get<std::vector<ast::Field>>(&method3.result.value());
+            ASSERT_EQ(tuple_result->size(), 2);
+            EXPECT_EQ(tuple_result->at(0).id, 1);
+            EXPECT_EQ(tuple_result->at(0).name, "y");
+            type = boost::get<ast::Primitive>(&tuple_result->at(0).type);
             ASSERT_NE(type, nullptr);
             EXPECT_EQ(type->kind, ast::PrimitiveKind::I32);
-            EXPECT_FALSE(method3.result->tuple_fields[0].default_value.has_value());
-            EXPECT_TRUE(method3.result->tuple_fields[0].attrs.empty());
+            EXPECT_FALSE(tuple_result->at(0).default_value.has_value());
+            EXPECT_TRUE(tuple_result->at(0).attrs.empty());
 
-            EXPECT_EQ(method3.result->tuple_fields[1].id, 2);
-            EXPECT_EQ(method3.result->tuple_fields[1].name, "z");
-            type = boost::get<ast::Primitive>(&method3.result->tuple_fields[1].type);
+            EXPECT_EQ(tuple_result->at(1).id, 2);
+            EXPECT_EQ(tuple_result->at(1).name, "z");
+            type = boost::get<ast::Primitive>(&tuple_result->at(1).type);
             ASSERT_NE(type, nullptr);
             EXPECT_EQ(type->kind, ast::PrimitiveKind::F64);
-            EXPECT_FALSE(method3.result->tuple_fields[1].default_value.has_value());
-            EXPECT_TRUE(method3.result->tuple_fields[1].attrs.empty());
+            EXPECT_FALSE(tuple_result->at(1).default_value.has_value());
+            EXPECT_TRUE(tuple_result->at(1).attrs.empty());
         }
 
         {
@@ -1206,11 +1213,12 @@ TEST(IdlRule, ParseDecl) {
         EXPECT_EQ(type->kind, ast::PrimitiveKind::I32);
         ASSERT_TRUE(interface_decl->methods[0].result.has_value());
         ast::Result& result = interface_decl->methods[0].result.value();
-        ASSERT_FALSE(result.is_tuple);
-        ASSERT_TRUE(result.tuple_fields.empty());
-        auto* result_type = boost::get<ast::Primitive>(&result.single);
+        EXPECT_EQ(result.which(), 0);
+        auto* result_type = boost::get<ast::Type>(&result);
         ASSERT_NE(result_type, nullptr);
-        EXPECT_EQ(result_type->kind, ast::PrimitiveKind::I32);
+        auto* primitive = boost::get<ast::Primitive>(result_type);
+        ASSERT_NE(primitive, nullptr);
+        EXPECT_EQ(primitive->kind, ast::PrimitiveKind::I32);
     }
 }
 
