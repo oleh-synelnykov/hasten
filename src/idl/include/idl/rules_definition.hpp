@@ -5,6 +5,17 @@
 
 #include <type_traits>
 
+/**
+ * @file rules_definition.hpp
+ * @brief Spirit rules definitions
+ *
+ * This file contains Spirit rules definitions for the IDL parser.
+ *
+ * @note This file is included in exactly one module, hence the NOLINT.
+ *
+ */
+// NOLINTBEGIN(misc-definitions-in-headers)
+
 namespace boost::spirit::x3::traits
 {
 
@@ -18,16 +29,6 @@ struct is_substitute<boost::optional<T>, std::optional<T>> : std::true_type {
 
 }  // namespace boost::spirit::x3::traits
 
-/**
- * @file rules_definition.hpp
- * @brief Spirit rules definitions
- *
- * This file contains Spirit rules definitions for the IDL parser.
- *
- * @note This file is included in exactly one module, hence the NOLINT.
- *
- */
-// NOLINTBEGIN(misc-definitions-in-headers)
 
 namespace hasten::idl::parser
 {
@@ -128,15 +129,15 @@ const auto comment_def = line_comment | block_comment;
 const auto skipper_def = comment | x3::space;
 
 // tokens
-Identifier identifier = "ident";
+Identifier identifier = "identifier";
 Name name = "name";
-QualifiedIdentifier qualified_identifier = "qident";
-StringLiteral string_lit = "string_lit";
-BooleanLiteral bool_lit = "bool_lit";
-IntegerLiteral int_lit = "int_lit";
-FloatLiteral float_lit = "float_lit";
-BytesLiteral bytes_lit = "bytes_lit";
-ConstantValue const_value = "const_value";
+QualifiedIdentifier qualified_identifier = "qualified identifier";
+StringLiteral string_lit = "string literal";
+BooleanLiteral bool_lit = "boolean literal";
+IntegerLiteral int_lit = "integer literal";
+FloatLiteral float_lit = "float literal";
+BytesLiteral bytes_lit = "bytes literal";
+ConstantValue const_value = "constant value";
 
 // identifiers
 const auto identifier_def =
@@ -277,11 +278,11 @@ const auto const_value_def =
 
 // -------------- type rules --------------
 Type type = "type";
-PrimitiveType prim_type = "prim_type";
-UserType user_type = "user_type";
-VectorType vec_type = "vec_type";
-MapType map_type = "map_type";
-OptionalType opt_type = "opt_type";
+PrimitiveType prim_type = "primitive type";
+UserType user_type = "user type";
+VectorType vec_type = "vector type";
+MapType map_type = "map type";
+OptionalType opt_type = "optional type";
 
 const auto prim_type_def =
     (kw_bool   >> x3::attr(ast::Primitive{ast::PrimitiveKind::Bool}))
@@ -319,7 +320,7 @@ const auto type_def =
 
 // -------------- attributes --------------
 Attribute attribute = "attribute";
-AttributeList attribute_list = "attribute_list";
+AttributeList attribute_list = "attribute list";
 
 const auto attribute_def =
     identifier >> -('=' >> const_value);
@@ -332,10 +333,10 @@ const auto attribute_list_or_empty =
 
 // -------------- fields / params / results --------------
 Field field = "field";
-Parameter param = "param";
+Parameter param = "parameter";
 Result result = "result";
-ReturnField ret_field = "ret_field";
-ReturnFields ret_fields = "ret_fields";
+ReturnField ret_field = "field";
+ReturnFields ret_fields = "fields";
 
 const auto field_def =
     int_lit >> ':' >> type >> name >> -('=' >> const_value) >> attribute_list_or_empty >> ';';
@@ -360,14 +361,14 @@ const auto ret_fields_def =
     ('(' >> ret_field % ',' >> ')');
 
 // -------------- declarations --------------
-Constant const_decl = "const_decl";
-EnumItem enum_item  = "enum_item";
-Enum enum_decl  = "enum_decl";
-Struct struct_decl= "struct_decl";
+Constant const_decl = "constant declaration";
+EnumItem enum_item  = "enum item";
+Enum enum_decl  = "enum declaration";
+Struct struct_decl= "struct declaration";
 Method method     = "method";
-MethodKind method_kind = "method_kind";
-Interface interface_decl = "interface_decl";
-Declaration decl       = "decl";
+MethodKind method_kind = "method kind";
+Interface interface_decl = "interface declaration";
+Declaration decl       = "declaration";
 
 const auto const_decl_def = kw_const >> type >> name >> '=' >> const_value >> ';';
 
@@ -398,14 +399,16 @@ const auto decl_def =
 // -------------- imports / module / file --------------
 Import import = "import";
 Module module = "module";
-ModuleDeclaration module_decl = "module_decl";
+ModuleDeclaration module_decl = "module declaration";
 
 const auto import_def = kw_import >> string_lit >> ';';
 
 const auto module_decl_def =
-    (kw_module >> qualified_identifier >> ';');
+    (kw_module > qualified_identifier > ';');
 
-const auto module_def = module_decl >> *import >> *decl;
+const auto module_def =
+    (module_decl >> *import >> *decl)
+;
 
 // clang-format on
 

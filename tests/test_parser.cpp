@@ -206,7 +206,20 @@ TEST(Parser, ParseModuleWithAttributes) {
 TEST(Parser, ParseModuleFailureReportsError) {
     ast::Module m;
     std::string error;
-    EXPECT_FALSE(parse_file("module missing_semicolon", m, &error));
-    ASSERT_FALSE(error.empty());
-    EXPECT_NE(error.find("parse error"), std::string::npos);
+    {
+        EXPECT_FALSE(parse_file("module missing_semicolon", m, &error));
+        ASSERT_FALSE(error.empty());
+        EXPECT_NE(error.find("Expected ';'"), std::string::npos);
+    }
+    {
+        EXPECT_FALSE(parse_file("module;", m, &error));
+        ASSERT_FALSE(error.empty());
+        EXPECT_NE(error.find("Expected qualified identifier"), std::string::npos);
+    }
+    {
+        // identifier cannot start with number
+        EXPECT_FALSE(parse_file("module 123;", m, &error));
+        ASSERT_FALSE(error.empty());
+        EXPECT_NE(error.find("Expected qualified identifier"), std::string::npos);
+    }
 }

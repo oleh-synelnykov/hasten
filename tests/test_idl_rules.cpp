@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include <string>
 #include <boost/spirit/home/x3.hpp>
 #include <boost/variant/get.hpp>
+#include <string>
 #include <vector>
 
 #include "idl/ast.hpp"
@@ -12,27 +12,35 @@ using namespace hasten::idl;
 using namespace hasten::idl::parser;
 
 template <typename Rule, typename Attr>
-testing::AssertionResult parse_rule(const std::string& input,
-                                       Rule const& rule,
-                                       Attr& out)
+testing::AssertionResult parse_rule(const std::string& input, Rule const& rule, Attr& out)
 {
     auto first = input.begin();
     auto last = input.end();
 
-    // error handling
-    error_handler_type err_handler(first, last, std::cerr);
-    auto const with_err = x3::with<x3::error_handler_tag>(std::ref(err_handler))[ rule ];
+    // Create a position cache for this buffer
+    position_cache_type positions(first, last);
 
-    bool ok = phrase_parse(first, last, with_err, skipper(), out);
+    // error handling
+    using error_handler_t = x3::error_handler<hasten::idl::parser::iterator_type>;
+    error_handler_t err_handler(first, last, std::cerr);
+
+    // clang-format off
+    const auto parser =
+        x3::with<x3::error_handler_tag>(std::ref(err_handler))[
+            x3::with<position_cache_tag>(std::ref(positions))[
+                rule
+            ]
+        ];
+    // clang-format on
+
+    bool ok = phrase_parse(first, last, parser, skipper(), out);
 
     if (!ok) {
-        return testing::AssertionFailure()
-            << "parse failed for input: `" << input << "`";
+        return testing::AssertionFailure() << "parse failed for input: `" << input << "`";
     }
     if (first != last) {
         return testing::AssertionFailure()
-            << "parse did not consume full input. Remaining: `"
-            << std::string(first, last) << "`";
+               << "parse did not consume full input. Remaining: `" << std::string(first, last) << "`";
     }
     return testing::AssertionSuccess();
 }

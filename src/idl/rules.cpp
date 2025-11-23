@@ -1,7 +1,9 @@
 #include "idl/config.hpp"
 #include "idl/rules_definition.hpp"
+#include "idl/error_handler.hpp"
 
 #include <boost/spirit/home/x3.hpp>
+#include <boost/spirit/home/x3/support/utility/annotate_on_success.hpp>
 
 namespace hasten::idl::parser::rule
 {
@@ -42,5 +44,8 @@ BOOST_SPIRIT_INSTANTIATE(Declaration, iterator_type, context_type);
 BOOST_SPIRIT_INSTANTIATE(Import, iterator_type, context_type);
 BOOST_SPIRIT_INSTANTIATE(ModuleDeclaration, iterator_type, context_type);
 BOOST_SPIRIT_INSTANTIATE(Module, iterator_type, context_type);
+
+struct ModuleDeclarationRuleClass : GenericParsingErrorHandler, x3::annotate_on_success {
+};
 
 }  // namespace hasten::idl::parser::rule

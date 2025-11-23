@@ -3,6 +3,7 @@
 #include <boost/fusion/include/adapt_struct.hpp>
 #include <boost/variant.hpp>
 #include <boost/variant/recursive_wrapper.hpp>
+#include <boost/spirit/home/x3/support/ast/position_tagged.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -11,6 +12,9 @@
 
 namespace hasten::idl::ast
 {
+
+struct PositionTaggedNode : boost::spirit::x3::position_tagged {
+};
 
 // ---------- identifiers ----------
 
@@ -56,7 +60,7 @@ struct Primitive {
     PrimitiveKind kind{};
 };
 
-struct UserType {
+struct UserType : PositionTaggedNode {
     QualifiedIdentifier name;
 };
 
@@ -90,7 +94,7 @@ struct Optional {
 
 // ---------- attributes ----------
 
-struct Attribute {
+struct Attribute : PositionTaggedNode {
     std::string name;
     std::optional<ConstantValue> value;  // [name] or [name=value]
 };
@@ -99,7 +103,7 @@ using AttributeList = std::vector<Attribute>;
 
 // ---------- fields / params / results ----------
 
-struct Field {
+struct Field : PositionTaggedNode {
     std::uint64_t id = 0;
     Type type;
     std::string name;
@@ -107,7 +111,7 @@ struct Field {
     AttributeList attrs;
 };
 
-struct Parameter {
+struct Parameter : PositionTaggedNode {
     std::uint64_t id = 0;
     Type type;
     std::string name;
@@ -128,25 +132,25 @@ struct ConstantDeclaration {
     ConstantValue value;
 };
 
-struct Enumerator {
+struct Enumerator : PositionTaggedNode {
     std::string name;
     std::optional<std::int64_t> value;
     AttributeList attrs;
 };
 
-struct Enum {
+struct Enum : PositionTaggedNode {
     std::string name;
     std::vector<Enumerator> items;
 };
 
-struct Struct {
+struct Struct : PositionTaggedNode {
     std::string name;
     std::vector<Field> fields;
 };
 
 enum class MethodKind { Rpc, Oneway, Stream, Notify };
 
-struct Method {
+struct Method : PositionTaggedNode {
     MethodKind kind = MethodKind::Rpc;
     std::string name;
     std::vector<Parameter> params;
@@ -154,7 +158,7 @@ struct Method {
     AttributeList attrs;
 };
 
-struct Interface {
+struct Interface : PositionTaggedNode {
     std::string name;
     std::vector<Method> methods;
 };
@@ -171,11 +175,11 @@ using Declaration = boost::variant<
 
 // ---------- module / file ----------
 
-struct Import {
+struct Import : PositionTaggedNode {
     std::string path;  // as in: import "foo/bar.hidl";
 };
 
-struct Module {
+struct Module : PositionTaggedNode {
     QualifiedIdentifier name;
     std::vector<Import> imports;
     std::vector<Declaration> decls;

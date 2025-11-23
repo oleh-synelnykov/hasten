@@ -2,8 +2,11 @@
 
 #include "ast.hpp"
 
+#include <boost/fusion/include/adapt_struct.hpp>
 #include <boost/spirit/home/x3.hpp>
 #include <boost/spirit/home/x3/support/ast/position_tagged.hpp>
+#include <boost/spirit/home/x3/support/utility/annotate_on_success.hpp>
+#include <boost/spirit/home/x3/support/utility/error_reporting.hpp>
 #include <boost/spirit/home/x3/support/unused.hpp>
 
 namespace hasten::idl::parser
@@ -14,67 +17,57 @@ namespace x3 = boost::spirit::x3;
 namespace rule
 {
 
-// position-tagged wrappers (source locations)
-template <typename T>
-struct with_pos : T, x3::position_tagged {
-    using T::T;
-    with_pos() = default;
-};
-
-// Expose AST aliases with positions for top nodes where it helps debugging
-using pModule = with_pos<ast::Module>;
-
 // comments and skipper
-using LineComment = x3::rule<class r_line_comment, std::string>;
-using BlockComment = x3::rule<class r_block_comment, std::string>;
-using Comment = x3::rule<class r_comment, std::string>;
-using Skipper = x3::rule<class r_skipper, x3::unused_type const>;
+using LineComment = x3::rule<struct LineCommentRuleClass, std::string>;
+using BlockComment = x3::rule<struct BlockCommentRuleClass, std::string>;
+using Comment = x3::rule<struct CommentRuleClass, std::string>;
+using Skipper = x3::rule<struct SkipperRuleClass, x3::unused_type const>;
 
 // tokens
-using Identifier = x3::rule<class r_ident, std::string>;
-using Name = x3::rule<class r_name, std::string>;
-using QualifiedIdentifier = x3::rule<class r_qident, ast::QualifiedIdentifier>;
-using StringLiteral = x3::rule<class r_string, std::string>;
-using BooleanLiteral = x3::rule<class r_bool, bool>;
-using IntegerLiteral = x3::rule<class r_int64, std::int64_t>;
-using FloatLiteral = x3::rule<class r_float, double>;
-using BytesLiteral = x3::rule<class r_bytes, ast::Bytes>;
-using ConstantValue = x3::rule<class r_const, ast::ConstantValue>;
+using Identifier = x3::rule<struct IdentifierRuleClass, std::string>;
+using Name = x3::rule<struct NameRuleClass, std::string>;
+using QualifiedIdentifier = x3::rule<struct QualifiedIdentifierRuleClass, ast::QualifiedIdentifier>;
+using StringLiteral = x3::rule<struct StringLiteralRuleClass, std::string>;
+using BooleanLiteral = x3::rule<struct BooleanLiteralRuleClass, bool>;
+using IntegerLiteral = x3::rule<struct IntegerLiteralRuleClass, std::int64_t>;
+using FloatLiteral = x3::rule<struct FloatLiteralRuleClass, double>;
+using BytesLiteral = x3::rule<struct BytesLiteralRuleClass, ast::Bytes>;
+using ConstantValue = x3::rule<struct ConstantValueRuleClass, ast::ConstantValue>;
 
 // types
-using Type = x3::rule<class r_type, ast::Type>;
-using PrimitiveType = x3::rule<class r_prim, ast::Primitive>;
-using UserType = x3::rule<class r_user, ast::UserType>;
-using VectorType = x3::rule<class r_vec, ast::Vector>;
-using MapType = x3::rule<class r_map, ast::Map>;
-using OptionalType = x3::rule<class r_opt, ast::Optional>;
+using Type = x3::rule<struct TypeRuleClass, ast::Type>;
+using PrimitiveType = x3::rule<struct PrimitiveTypeRuleClass, ast::Primitive>;
+using UserType = x3::rule<struct UserTypeRuleClass, ast::UserType>;
+using VectorType = x3::rule<struct VectorTypeRuleClass, ast::Vector>;
+using MapType = x3::rule<struct MapTypeRuleClass, ast::Map>;
+using OptionalType = x3::rule<struct OptionalTypeRuleClass, ast::Optional>;
 
 // attributes
-using Attribute = x3::rule<class r_attribute, ast::Attribute>;
-using AttributeList = x3::rule<class r_attribute_list, std::vector<ast::Attribute>>;
+using Attribute = x3::rule<struct AttributeRuleClass, ast::Attribute>;
+using AttributeList = x3::rule<struct AttributeListRuleClass, std::vector<ast::Attribute>>;
 
 // fields / params / results
-using Field = x3::rule<class r_field, ast::Field>;
-using Parameter = x3::rule<class r_param, ast::Parameter>;
-using Result = x3::rule<class r_ret, ast::Result>;
-using ReturnField = x3::rule<class r_ret_field, ast::Field>;
-using ReturnFields = x3::rule<class r_ret_fields, std::vector<ast::Field>>;
+using Field = x3::rule<struct FieldRuleClass, ast::Field>;
+using Parameter = x3::rule<struct ParameterRuleClass, ast::Parameter>;
+using Result = x3::rule<struct ResultRuleClass, ast::Result>;
+using ReturnField = x3::rule<struct ReturnFieldRuleClass, ast::Field>;
+using ReturnFields = x3::rule<struct ReturnFieldsRuleClass, std::vector<ast::Field>>;
 
 // declarations
-using Constant = x3::rule<class r_const_decl, ast::ConstantDeclaration>;
-using EnumItem = x3::rule<class r_enum_item, ast::Enumerator>;
-using Enum = x3::rule<class r_enum_decl, ast::Enum>;
-using Struct = x3::rule<class r_struct_decl, ast::Struct>;
-using Method = x3::rule<class r_method, ast::Method>;
-using MethodKind = x3::rule<class r_method_kind, ast::MethodKind>;
-using Interface = x3::rule<class r_iface_decl, ast::Interface>;
-using Declaration = x3::rule<class r_decl, ast::Declaration>;
+using Constant = x3::rule<struct ConstantRuleClass, ast::ConstantDeclaration>;
+using EnumItem = x3::rule<struct EnumItemRuleClass, ast::Enumerator>;
+using Enum = x3::rule<struct EnumRuleClass, ast::Enum>;
+using Struct = x3::rule<struct StructRuleClass, ast::Struct>;
+using Method = x3::rule<struct MethodRuleClass, ast::Method>;
+using MethodKind = x3::rule<struct MethodKindRuleClass, ast::MethodKind>;
+using Interface = x3::rule<struct InterfaceRuleClass, ast::Interface>;
+using Declaration = x3::rule<struct DeclarationRuleClass, ast::Declaration>;
 
 // imports / module / file
-using Import = x3::rule<class r_import, ast::Import>;
-using Module = x3::rule<class r_module, ast::Module>;
+using Import = x3::rule<struct ImportRuleClass, ast::Import>;
+using Module = x3::rule<struct ModuleRuleClass, ast::Module>;
 
-using ModuleDeclaration = x3::rule<class r_module_decl, ast::QualifiedIdentifier>;
+using ModuleDeclaration = x3::rule<struct ModuleDeclarationRuleClass, ast::QualifiedIdentifier>;
 
 // clang-format off
 
