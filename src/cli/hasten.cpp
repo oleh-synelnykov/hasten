@@ -1,6 +1,8 @@
 #include "cli/hasten.hpp"
 #include "cli/options.hpp"
 
+#include "frontend/frontend.hpp"
+
 #include <fmt/core.h>
 #include <fmt/ostream.h>
 #include <spdlog/spdlog.h>
@@ -22,6 +24,14 @@ int run(int argc, char* argv[])
     }
 
     fmt::print("Hasten v{}.{}.{}\n", HASTEN_VERSION_MAJOR, HASTEN_VERSION_MINOR, HASTEN_VERSION_PATCH);
+
+    auto result = frontend::parse_program(opts->input_file);
+    if (!result) {
+        spdlog::error("Failed to parse program: {}", result.error());
+        return 1;
+    }
+
+    spdlog::info("Parsed program with {} files\n", result->files.size());
     return 0;
 }
 

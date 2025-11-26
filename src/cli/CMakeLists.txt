@@ -8,7 +8,7 @@ target_include_directories(hasten_cli PUBLIC
 )
 
 target_link_libraries(hasten_cli PUBLIC
-    hasten_idl
+    hasten_frontend
     boost::boost
     fmt::fmt
     spdlog::spdlog
