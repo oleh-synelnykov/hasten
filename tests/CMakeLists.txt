@@ -1,5 +1,6 @@
 add_executable(test_hasten_idl
     test_cli_options.cpp
+    test_cli.cpp
     test_idl_rules.cpp
     test_parser.cpp
 )
