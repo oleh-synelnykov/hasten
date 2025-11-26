@@ -1,20 +1,18 @@
 #include "idl/parser.hpp"
 
-#include "idl/ast.hpp"
-#include "idl/config.hpp"
 #include "idl/rules.hpp"
 
 #include <boost/spirit/home/x3.hpp>
 #include <boost/spirit/home/x3/support/utility/error_reporting.hpp>
 #include <boost/spirit/home/x3/support/ast/position_tagged.hpp>
 
-#include <iostream>
+#include <expected>
 #include <sstream>
 
 namespace hasten::idl::parser
 {
 
-bool parse_file(const std::string& input, ast::Module& out, std::string* error)
+std::expected<ParseResult, std::string> parse_file(const std::string& input)
 {
     auto iter = input.begin();
     auto end = input.end();
@@ -42,23 +40,22 @@ bool parse_file(const std::string& input, ast::Module& out, std::string* error)
 
     if (!ok || iter != end) {
         auto diagnostic = diag_stream.str();
-        if (error) {
-            if (!diagnostic.empty()) {
-                (*error) = std::move(diagnostic);
-            } else {
-                (*error) = "Parse error near: ";
-                auto rem = std::string(iter, end);
-                if (rem.size() > 64)
-                    rem.resize(64);
-                (*error) += rem;
-            }
-        } else if (!diagnostic.empty()) {
-            std::cerr << diagnostic;
+        if (!diagnostic.empty()) {
+            return std::unexpected(diagnostic);
+        } else {
+            std::string result = "Parse error near: ";
+            auto rem = std::string(iter, end);
+            if (rem.size() > 64)
+                rem.resize(64);
+            result += rem;
+            return std::unexpected(result);
         }
-        return false;
     }
-    out = std::move(m);
-    return true;
+
+    return ParseResult{
+        .module = std::move(m),
+        .position_cache = std::move(positions)
+    };
 }
 
 }  // namespace hasten::idl::parser

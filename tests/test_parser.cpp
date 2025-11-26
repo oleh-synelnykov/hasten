@@ -9,21 +9,23 @@ using namespace hasten::idl;
 using namespace hasten::idl::parser;
 
 TEST(Parser, ParseModule) {
-    ast::Module m;
-    std::string error;
-    ASSERT_TRUE(parse_file("module foo;", m, &error)) << error;
-    ASSERT_EQ(m.name.parts.size(), 1);
-    EXPECT_EQ(m.name.parts[0], "foo");
+    auto parse_result = parse_file("module foo;");
+    ASSERT_TRUE(parse_result);
+
+    ast::Module& module = parse_result->module;
+    ASSERT_EQ(module.name.parts.size(), 1);
+    EXPECT_EQ(module.name.parts[0], "foo");
 }
 
 TEST(Parser, ParseModuleMultiPartName) {
-    ast::Module m;
-    std::string error;
-    ASSERT_TRUE(parse_file("module foo.bar.v2;", m, &error)) << error;
-    ASSERT_EQ(m.name.parts.size(), 3);
-    EXPECT_EQ(m.name.parts[0], "foo");
-    EXPECT_EQ(m.name.parts[1], "bar");
-    EXPECT_EQ(m.name.parts[2], "v2");
+    auto parse_result = parse_file("module foo.bar.v2;");
+    ASSERT_TRUE(parse_result);
+
+    ast::Module& module = parse_result->module;
+    ASSERT_EQ(module.name.parts.size(), 3);
+    EXPECT_EQ(module.name.parts[0], "foo");
+    EXPECT_EQ(module.name.parts[1], "bar");
+    EXPECT_EQ(module.name.parts[2], "v2");
 }
 
 TEST(Parser, ParseModuleWithImports) {
@@ -32,12 +34,13 @@ TEST(Parser, ParseModuleWithImports) {
            import "std/base.hidl";
            import "std/math.hidl";)";
 
-    ast::Module m;
-    std::string error;
-    ASSERT_TRUE(parse_file(input, m, &error)) << error;
-    ASSERT_EQ(m.imports.size(), 2);
-    EXPECT_EQ(m.imports[0].path, "std/base.hidl");
-    EXPECT_EQ(m.imports[1].path, "std/math.hidl");
+    auto parse_result = parse_file(input);
+    ASSERT_TRUE(parse_result);
+
+    ast::Module& module = parse_result->module;
+    ASSERT_EQ(module.imports.size(), 2);
+    EXPECT_EQ(module.imports[0].path, "std/base.hidl");
+    EXPECT_EQ(module.imports[1].path, "std/math.hidl");
 }
 
 TEST(Parser, ParseModuleWithStructAndDefaults) {
@@ -49,12 +52,13 @@ TEST(Parser, ParseModuleWithStructAndDefaults) {
              3:vector<i32> scores;
            };)";
 
-    ast::Module m;
-    std::string error;
-    ASSERT_TRUE(parse_file(input, m, &error)) << error;
-    ASSERT_EQ(m.decls.size(), 1);
+    auto parse_result = parse_file(input);
+    ASSERT_TRUE(parse_result);
 
-    auto* s = boost::get<ast::Struct>(&m.decls[0]);
+    ast::Module& module = parse_result->module;
+    ASSERT_EQ(module.decls.size(), 1);
+
+    auto* s = boost::get<ast::Struct>(&module.decls[0]);
     ASSERT_NE(s, nullptr);
     ASSERT_EQ(s->fields.size(), 3);
     EXPECT_EQ(s->fields[0].name, "id");
@@ -82,11 +86,12 @@ TEST(Parser, ParseModuleWithInterfaceAndResults) {
              oneway Fire(1:i32 code);
            };)";
 
-    ast::Module m;
-    std::string error;
-    ASSERT_TRUE(parse_file(input, m, &error)) << error;
-    ASSERT_EQ(m.decls.size(), 1);
-    auto* iface = boost::get<ast::Interface>(&m.decls[0]);
+    auto parse_result = parse_file(input);
+    ASSERT_TRUE(parse_result);
+
+    ast::Module& module = parse_result->module;
+    ASSERT_EQ(module.decls.size(), 1);
+    auto* iface = boost::get<ast::Interface>(&module.decls[0]);
     ASSERT_NE(iface, nullptr);
     ASSERT_EQ(iface->methods.size(), 2);
 
@@ -111,17 +116,18 @@ TEST(Parser, ParseModuleWithConstAndEnum) {
            const i32 MaxRetries = 5;
            enum State { Ready = 1, Busy = 2, };)";
 
-    ast::Module m;
-    std::string error;
-    ASSERT_TRUE(parse_file(input, m, &error)) << error;
-    ASSERT_EQ(m.decls.size(), 2);
+    auto parse_result = parse_file(input);
+    ASSERT_TRUE(parse_result);
 
-    auto* c = boost::get<ast::ConstantDeclaration>(&m.decls[0]);
+    ast::Module& module = parse_result->module;
+    ASSERT_EQ(module.decls.size(), 2);
+
+    auto* c = boost::get<ast::ConstantDeclaration>(&module.decls[0]);
     ASSERT_NE(c, nullptr);
     EXPECT_EQ(c->name, "MaxRetries");
     EXPECT_EQ(boost::get<std::int64_t>(c->value), 5);
 
-    auto* e = boost::get<ast::Enum>(&m.decls[1]);
+    auto* e = boost::get<ast::Enum>(&module.decls[1]);
     ASSERT_NE(e, nullptr);
     ASSERT_EQ(e->items.size(), 2);
     EXPECT_EQ(e->items[0].name, "Ready");
@@ -140,12 +146,13 @@ TEST(Parser, ParseModuleWithContainerTypes) {
              rpc Get(1:u64 id) -> (1:Bag bag);
            };)";
 
-    ast::Module m;
-    std::string error;
-    ASSERT_TRUE(parse_file(input, m, &error)) << error;
-    ASSERT_EQ(m.decls.size(), 2);
+    auto parse_result = parse_file(input);
+    ASSERT_TRUE(parse_result);
 
-    auto* bag = boost::get<ast::Struct>(&m.decls[0]);
+    ast::Module& module = parse_result->module;
+    ASSERT_EQ(module.decls.size(), 2);
+
+    auto* bag = boost::get<ast::Struct>(&module.decls[0]);
     ASSERT_NE(bag, nullptr);
     const auto* map = boost::get<ast::Map>(&bag->fields[0].type);
     ASSERT_NE(map, nullptr);
@@ -161,7 +168,7 @@ TEST(Parser, ParseModuleWithContainerTypes) {
     ASSERT_NE(byte_prim, nullptr);
     EXPECT_EQ(byte_prim->kind, ast::PrimitiveKind::U8);
 
-    auto* svc = boost::get<ast::Interface>(&m.decls[1]);
+    auto* svc = boost::get<ast::Interface>(&module.decls[1]);
     ASSERT_NE(svc, nullptr);
     ASSERT_EQ(svc->methods.size(), 1);
     const auto& get = svc->methods[0];
@@ -185,11 +192,12 @@ TEST(Parser, ParseModuleWithAttributes) {
              2:string contents [deprecated, format="utf8"];
            };)";
 
-    ast::Module m;
-    std::string error;
-    ASSERT_TRUE(parse_file(input, m, &error)) << error;
-    ASSERT_EQ(m.decls.size(), 1);
-    auto* doc = boost::get<ast::Struct>(&m.decls[0]);
+    auto parse_result = parse_file(input);
+    ASSERT_TRUE(parse_result);
+
+    ast::Module& module = parse_result->module;
+    ASSERT_EQ(module.decls.size(), 1);
+    auto* doc = boost::get<ast::Struct>(&module.decls[0]);
     ASSERT_NE(doc, nullptr);
     ASSERT_EQ(doc->fields.size(), 2);
 
@@ -204,65 +212,61 @@ TEST(Parser, ParseModuleWithAttributes) {
 }
 
 TEST(Parser, ParseModuleFailureReportsError) {
-    ast::Module m;
-    std::string error;
     {
-        EXPECT_FALSE(parse_file("module missing_semicolon", m, &error));
-        ASSERT_FALSE(error.empty());
-        EXPECT_NE(error.find("Expected ';'"), std::string::npos);
+        auto parse_result = parse_file("module missing_semicolon");
+        ASSERT_FALSE(parse_result);
+        EXPECT_NE(parse_result.error().find("Expected ';'"), std::string::npos);
     }
     {
-        EXPECT_FALSE(parse_file("module;", m, &error));
-        ASSERT_FALSE(error.empty());
-        EXPECT_NE(error.find("Expected qualified identifier"), std::string::npos);
+        auto parse_result = parse_file("module;");
+        ASSERT_FALSE(parse_result);
+        EXPECT_NE(parse_result.error().find("Expected qualified identifier"), std::string::npos);
     }
     {
         // identifier cannot start with number
-        EXPECT_FALSE(parse_file("module 123;", m, &error));
-        ASSERT_FALSE(error.empty());
-        EXPECT_NE(error.find("Expected qualified identifier"), std::string::npos);
+        auto parse_result = parse_file("module 123;");
+        ASSERT_FALSE(parse_result);
+        EXPECT_NE(parse_result.error().find("Expected qualified identifier"), std::string::npos);
     }
 }
 
 TEST(Parser, ParseInterfaceWithErrors) {
-    ast::Module m;
-    std::string error;
     {
         // interface with no name
-        EXPECT_FALSE(parse_file(R"(
+        auto parse_result = parse_file(R"(
             module test; // module declaration is a must
             interface {
                 rpc bar() -> (1:string);
-            };)", m, &error));
-        ASSERT_FALSE(error.empty());
-        EXPECT_NE(error.find("Expected identifier"), std::string::npos) << error;
+            };)");
+        ASSERT_FALSE(parse_result);
+        EXPECT_NE(parse_result.error().find("Expected identifier"), std::string::npos);
     }
     {
         // interface with no body
-        EXPECT_FALSE(parse_file(R"(
+        auto parse_result = parse_file(R"(
             module test;
             interface foo;
-        )", m, &error));
-        ASSERT_FALSE(error.empty());
-        EXPECT_NE(error.find("Expected '{'"), std::string::npos) << error;
+        )");
+        ASSERT_FALSE(parse_result);
+        EXPECT_NE(parse_result.error().find("Expected '{'"), std::string::npos);
     }
     {
         // interface with parentheses instead of braces
-        EXPECT_FALSE(parse_file(R"(
+        auto parse_result = parse_file(R"(
             module test;
             interface foo ( rpc bar() -> (1:string) );
-        )", m, &error));
-        ASSERT_FALSE(error.empty());
-        EXPECT_NE(error.find("Expected '{'"), std::string::npos) << error;
+        )");
+        ASSERT_FALSE(parse_result);
+        EXPECT_NE(parse_result.error().find("Expected '{'"), std::string::npos);
     }
     {
         // interface body unclosed
-        EXPECT_FALSE(parse_file(R"(
+        auto parse_result = parse_file(R"(
             module test;
             interface foo {
                 rpc bar() -> (1:string);
-        )", m, &error));
-        ASSERT_FALSE(error.empty());
-        EXPECT_NE(error.find("Expected '}'"), std::string::npos) << error;
+        )");
+        ASSERT_FALSE(parse_result);
+        EXPECT_NE(parse_result.error().find("Expected '}'"), std::string::npos);
     }
 }
