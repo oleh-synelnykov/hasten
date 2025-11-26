@@ -1242,14 +1242,16 @@ TEST(IdlRule, ParseModule) {
         ASSERT_TRUE(parse_rule(R"(
             module MyModule;
             import "path/to/file.idl";
+            import "path/to/another/file.idl";
             const bool x = true;
             enum E { A, B, C };
             struct S { 1: i32 x; };
             interface I { rpc method (1: i32 x) -> i32; }
         )", module(), t));
         EXPECT_EQ(t.name.to_string(), "MyModule");
-        ASSERT_EQ(t.imports.size(), 1);
+        ASSERT_EQ(t.imports.size(), 2);
         EXPECT_EQ(t.imports[0].path, "path/to/file.idl");
+        EXPECT_EQ(t.imports[1].path, "path/to/another/file.idl");
         ASSERT_EQ(t.decls.size(), 4);
         auto* const_decl = boost::get<ast::ConstantDeclaration>(&t.decls[0]);
         ASSERT_NE(const_decl, nullptr);

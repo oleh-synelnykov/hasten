@@ -15,6 +15,9 @@ find_package(GTest REQUIRED)
 # Hasten IDL static library
 add_subdirectory(src/idl)
 
+# Hasten Frontend static library
+add_subdirectory(src/frontend)
+
 # Hasten CLI static library
 add_subdirectory(src/cli)
 
@@ -25,6 +28,7 @@ add_executable(hasten
 
 target_link_libraries(hasten
     hasten_cli
+    hasten_frontend
     boost::boost
     fmt::fmt
     spdlog::spdlog
