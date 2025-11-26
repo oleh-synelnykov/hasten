@@ -15,14 +15,16 @@ find_package(GTest REQUIRED)
 # Hasten IDL static library
 add_subdirectory(src/idl)
 
+# Hasten CLI static library
+add_subdirectory(src/cli)
+
 # Hasten executable
 add_executable(hasten
     src/main.cpp
-    src/options.cpp
 )
 
 target_link_libraries(hasten
-    hasten_idl
+    hasten_cli
     boost::boost
     fmt::fmt
     spdlog::spdlog

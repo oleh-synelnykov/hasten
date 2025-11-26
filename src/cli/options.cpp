@@ -1,6 +1,8 @@
-#include "options.hpp"
+#include "cli/options.hpp"
 
 #include <boost/program_options.hpp>
+
+namespace hasten {
 
 std::expected<Options, std::string> parse_command_line(int argc, char* argv[])
 {
@@ -37,3 +39,5 @@ std::expected<Options, std::string> parse_command_line(int argc, char* argv[])
         return std::unexpected(e.what());
     }
 }
+
+}  // namespace hasten
