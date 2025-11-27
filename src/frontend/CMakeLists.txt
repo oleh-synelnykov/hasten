@@ -1,4 +1,5 @@
 add_library(hasten_frontend STATIC
+    diagnostic.cpp
     frontend.cpp
 )
 

@@ -130,3 +130,74 @@ TEST_F(Cli, TestRunOutputWithInvalidInputFile)
     EXPECT_NE(output.find("[error] Failed to parse program:"), std::string::npos);
     EXPECT_NE(output.find("Failed to open file: invalid.idl"), std::string::npos);
 }
+
+TEST_F(Cli, TestRunOutputWithDuplicateFieldIds) {
+    testing::internal::CaptureStdout();
+
+    auto idl = R"IDL(
+        module test;
+        struct foo {
+            1: i32 x;
+            1: i32 y;
+        };
+    )IDL";
+
+    auto idl_path = WriteFile("foo.idl", idl);
+
+    int argc = 2;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(idl_path.c_str())};
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 1);
+
+    std::string output = testing::internal::GetCapturedStdout();
+
+    EXPECT_NE(output.find("[error] Semantic analysis failed:"), std::string::npos);
+    EXPECT_NE(output.find("Duplicate field id '1' in struct 'foo'"), std::string::npos);
+}
+
+
+TEST_F(Cli, TestRunOutputWithDuplicateParameterIds) {
+    testing::internal::CaptureStdout();
+
+    auto idl = R"IDL(
+        module test;
+        interface foo {
+            rpc bar(1: i32 x, 1: i32 y) -> bool;
+        };
+    )IDL";
+
+    auto idl_path = WriteFile("foo.idl", idl);
+
+    int argc = 2;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(idl_path.c_str())};
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 1);
+
+    std::string output = testing::internal::GetCapturedStdout();
+
+    EXPECT_NE(output.find("[error] Semantic analysis failed:"), std::string::npos);
+    EXPECT_NE(output.find("Duplicate parameter id '1' in method 'bar'"), std::string::npos);
+}
+
+TEST_F(Cli, TestRunOutputWithDuplicateResultIds) {
+    testing::internal::CaptureStdout();
+
+    auto idl = R"IDL(
+        module test;
+        interface foo {
+            rpc baz(1: i32 x) -> (1: i32 y, 1: i32 z);
+        };
+    )IDL";
+
+    auto idl_path = WriteFile("foo.idl", idl);
+
+    int argc = 2;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(idl_path.c_str())};
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 1);
+
+    std::string output = testing::internal::GetCapturedStdout();
+
+    EXPECT_NE(output.find("[error] Semantic analysis failed:"), std::string::npos);
+    EXPECT_NE(output.find("Duplicate result field id '1' in method 'baz'"), std::string::npos);
+}

@@ -1,25 +1,32 @@
 #include <gtest/gtest.h>
 
 #include "frontend/frontend.hpp"
+#include "idl/visit.hpp"
+
+#include <boost/core/demangle.hpp>
 
 #include <filesystem>
 #include <fstream>
 
-class Frontend : public ::testing::Test {
+class Frontend : public ::testing::Test
+{
 protected:
     std::filesystem::path temp_dir;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         temp_dir = std::filesystem::temp_directory_path() / "hasten_tests";
         std::filesystem::create_directories(temp_dir);
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         std::error_code ec;
         std::filesystem::remove_all(temp_dir, ec);
     }
 
-    std::filesystem::path WriteFile(const std::string& name, const std::string& content) {
+    std::filesystem::path WriteFile(const std::string& name, const std::string& content)
+    {
         auto path = temp_dir / name;
         std::ofstream f(path);
         f << content;
@@ -27,7 +34,8 @@ protected:
     }
 };
 
-TEST_F(Frontend, ParseProgramSingleFile) {
+TEST_F(Frontend, ParseProgramSingleFile)
+{
     auto idl = R"IDL(
         module test;
         interface foo {
@@ -62,7 +70,6 @@ TEST_F(Frontend, ParseProgramSingleFile) {
     EXPECT_EQ(method.name, "bar");
     EXPECT_EQ(method.kind, hasten::idl::ast::MethodKind::Rpc);
 
-
     ASSERT_EQ(method.params.size(), 1);
     const auto& param = method.params.at(0);
     EXPECT_EQ(param.name, "x");
@@ -82,7 +89,8 @@ TEST_F(Frontend, ParseProgramSingleFile) {
     }
 }
 
-TEST_F(Frontend, ParseProgramMultipleFiles) {
+TEST_F(Frontend, ParseProgramMultipleFiles)
+{
     auto idl = R"IDL(
         module test;
         import "second.idl";
@@ -150,7 +158,6 @@ TEST_F(Frontend, ParseProgramMultipleFiles) {
         EXPECT_EQ(method.name, "bar");
         EXPECT_EQ(method.kind, hasten::idl::ast::MethodKind::Rpc);
 
-
         ASSERT_EQ(method.params.size(), 1);
         const auto& param = method.params.at(0);
         EXPECT_EQ(param.name, "x");
@@ -189,7 +196,6 @@ TEST_F(Frontend, ParseProgramMultipleFiles) {
         const auto& method = methods.at(0);
         EXPECT_EQ(method.name, "bar2");
         EXPECT_EQ(method.kind, hasten::idl::ast::MethodKind::Rpc);
-
 
         ASSERT_EQ(method.params.size(), 1);
         const auto& param = method.params.at(0);
@@ -230,7 +236,6 @@ TEST_F(Frontend, ParseProgramMultipleFiles) {
         EXPECT_EQ(method.name, "bar3");
         EXPECT_EQ(method.kind, hasten::idl::ast::MethodKind::Rpc);
 
-
         ASSERT_EQ(method.params.size(), 1);
         const auto& param = method.params.at(0);
         EXPECT_EQ(param.name, "x3");
@@ -270,7 +275,6 @@ TEST_F(Frontend, ParseProgramMultipleFiles) {
         EXPECT_EQ(method.name, "bar4");
         EXPECT_EQ(method.kind, hasten::idl::ast::MethodKind::Rpc);
 
-
         ASSERT_EQ(method.params.size(), 1);
         const auto& param = method.params.at(0);
         EXPECT_EQ(param.name, "x4");
@@ -289,4 +293,58 @@ TEST_F(Frontend, ParseProgramMultipleFiles) {
             EXPECT_EQ(type->kind, hasten::idl::ast::PrimitiveKind::Bool);
         }
     }
+}
+
+struct TraverseAll {
+    template <typename T>
+    void operator()(const T& node)
+    {
+        // It is ugly as hell to use in unit tests. If this doesn't work with your
+        // compiler - feel free to disable VisitWholeProgram test (e.g. rename it to
+        // DISABLED_VisitWholeProgram)
+        std::cout << "Visiting " << boost::core::demangle(typeid(node).name()) << "\n";
+    }
+};
+
+TEST_F(Frontend, VisitWholeProgram)
+{
+    auto idl = R"IDL(
+        module test;
+        struct foo {
+           1: i32 x;
+           2: i32 y;
+        };
+        interface bar {
+            rpc baz(1: i32 x) -> i32;
+        };
+    )IDL";
+
+    auto idl_path = WriteFile("foo.idl", idl);
+
+    testing::internal::CaptureStdout();
+
+    auto maybe_program = hasten::frontend::parse_program(idl_path.string());
+    ASSERT_TRUE(maybe_program) << maybe_program.error();
+
+    hasten::frontend::Program& program = maybe_program.value();
+
+    TraverseAll pass;
+    for (const auto& [_, f] : program.files) {
+        hasten::idl::ast::visit(f.module, pass);
+    }
+
+    std::string output = testing::internal::GetCapturedStdout();
+    std::string expectation =
+        "Visiting hasten::idl::ast::Module\n"
+        "Visiting hasten::idl::ast::Struct\n"
+        "Visiting hasten::idl::ast::Field\n"
+        "Visiting hasten::idl::ast::Primitive\n"
+        "Visiting hasten::idl::ast::Field\n"
+        "Visiting hasten::idl::ast::Primitive\n"
+        "Visiting hasten::idl::ast::Interface\n"
+        "Visiting hasten::idl::ast::Method\n"
+        "Visiting hasten::idl::ast::Parameter\n"
+        "Visiting hasten::idl::ast::Primitive\n";
+
+    EXPECT_EQ(output, expectation);
 }
