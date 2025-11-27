@@ -3,6 +3,7 @@
 #include "cli/hasten.hpp"
 
 #include <fmt/core.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -200,4 +201,120 @@ TEST_F(Cli, TestRunOutputWithDuplicateResultIds) {
 
     EXPECT_NE(output.find("[error] Semantic analysis failed:"), std::string::npos);
     EXPECT_NE(output.find("Duplicate result field id '1' in method 'baz'"), std::string::npos);
+}
+
+TEST_F(Cli, TestPrintAstOutputsJson)
+{
+    testing::internal::CaptureStdout();
+
+    auto shared_idl = R"IDL(
+        module sample.shared;
+
+        struct SharedData {
+            1: string tag [deprecated];
+            2: i32 version [deprecated=false];
+        };
+    )IDL";
+
+    auto main_idl = R"IDL(
+        module sample;
+
+        import "shared.idl";
+
+        struct User {
+            1: i32 id;
+            2: string name;
+            3: optional<vector<u64>> tokens;
+            4: map<string, i64> metadata;
+        };
+
+        interface Foo {
+            rpc ping(1: string msg) -> (1: string reply);
+            rpc status(1: u32 code) -> bool;
+        };
+    )IDL";
+
+    auto shared_path = WriteFile("shared.idl", shared_idl);
+    auto main_path = WriteFile("sample.idl", main_idl);
+    auto shared_path_str = shared_path.string();
+    auto main_path_str = main_path.string();
+
+    int argc = 3;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(main_path_str.c_str()),
+                    const_cast<char*>("--print-ast")};
+
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 0);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    auto json_start = output.find('{');
+    ASSERT_NE(json_start, std::string::npos);
+
+    std::string json_payload = output.substr(json_start);
+    auto parsed = nlohmann::json::parse(json_payload);
+
+    ASSERT_TRUE(parsed.contains("files"));
+    ASSERT_EQ(parsed["files"].size(), 2);
+
+    auto find_file = [&](const std::string& path) -> const nlohmann::json& {
+        for (const auto& file_json : parsed["files"]) {
+            if (file_json.at("path") == path) {
+                return file_json;
+            }
+        }
+        ADD_FAILURE() << "File path not found in AST JSON: " << path;
+        return parsed["files"][0];
+    };
+
+    const auto& main_file = find_file(main_path_str);
+    const auto& shared_file = find_file(shared_path_str);
+
+    // Validate main module basics
+    const auto& main_module = main_file.at("module");
+    EXPECT_EQ(main_module.at("name"), "sample");
+    ASSERT_TRUE(main_module.contains("imports"));
+    ASSERT_EQ(main_module.at("imports").size(), 1);
+    EXPECT_EQ(main_module.at("imports")[0].at("path"), "shared.idl");
+
+    // Validate User struct with diverse field types
+    const auto& main_decls = main_module.at("declarations");
+    auto user_decl_it = std::find_if(main_decls.begin(), main_decls.end(), [](const nlohmann::json& decl) {
+        return decl.at("kind") == "struct" && decl.at("name") == "User";
+    });
+    ASSERT_NE(user_decl_it, main_decls.end());
+    const auto& user_struct = *user_decl_it;
+    ASSERT_EQ(user_struct.at("fields").size(), 4);
+    EXPECT_EQ(user_struct.at("fields")[0].at("type").at("name"), "i32");
+    EXPECT_EQ(user_struct.at("fields")[2].at("type").at("kind"), "optional");
+    EXPECT_EQ(user_struct.at("fields")[2].at("type").at("inner").at("kind"), "vector");
+    EXPECT_EQ(user_struct.at("fields")[2].at("type").at("inner").at("element").at("name"), "u64");
+    EXPECT_EQ(user_struct.at("fields")[3].at("type").at("kind"), "map");
+    EXPECT_EQ(user_struct.at("fields")[3].at("type").at("key").at("name"), "string");
+
+    // Validate Foo interface methods and result forms
+    auto foo_decl_it = std::find_if(main_decls.begin(), main_decls.end(), [](const nlohmann::json& decl) {
+        return decl.at("kind") == "interface" && decl.at("name") == "Foo";
+    });
+    ASSERT_NE(foo_decl_it, main_decls.end());
+    const auto& foo_iface = *foo_decl_it;
+    ASSERT_EQ(foo_iface.at("methods").size(), 2);
+    const auto& ping_method = foo_iface.at("methods")[0];
+    ASSERT_TRUE(ping_method.contains("result"));
+    EXPECT_EQ(ping_method.at("result").at("kind"), "tuple");
+    const auto& status_method = foo_iface.at("methods")[1];
+    ASSERT_TRUE(status_method.contains("result"));
+    EXPECT_EQ(status_method.at("result").at("kind"), "type");
+    EXPECT_EQ(status_method.at("result").at("type").at("name"), "bool");
+
+    // Validate imported file attributes
+    const auto& shared_module_json = shared_file.at("module");
+    EXPECT_EQ(shared_module_json.at("name"), "sample.shared");
+    const auto& shared_decl = shared_module_json.at("declarations")[0];
+    ASSERT_EQ(shared_decl.at("kind"), "struct");
+    const auto& shared_fields = shared_decl.at("fields");
+    ASSERT_EQ(shared_fields.size(), 2);
+    ASSERT_EQ(shared_fields[0].at("attributes").size(), 1);
+    EXPECT_EQ(shared_fields[0].at("attributes")[0].at("name"), "deprecated");
+    ASSERT_EQ(shared_fields[1].at("attributes").size(), 1);
+    EXPECT_EQ(shared_fields[1].at("attributes")[0].at("value"), false);
 }

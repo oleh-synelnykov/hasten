@@ -1,13 +1,15 @@
 #include "cli/hasten.hpp"
 
-#include "idl/visit.hpp"
 #include "cli/options.hpp"
+#include "idl/json_dump.hpp"
+#include "idl/visit.hpp"
 #include "frontend/diagnostic.hpp"
 #include "frontend/frontend.hpp"
 #include "frontend/semantics.hpp"
 
 #include <fmt/core.h>
 #include <fmt/ostream.h>
+#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
 namespace hasten
@@ -52,6 +54,21 @@ int run(int argc, char* argv[])
     }
 
     spdlog::info("Parsed program with {} files\n", program.files.size());
+
+    if (opts->print_ast) {
+        nlohmann::json files = nlohmann::json::array();
+        for (const auto& [path, file] : program.files) {
+            nlohmann::json file_json;
+            file_json["path"] = path;
+            file_json["module"] = idl::ast::to_json(file.module);
+            files.push_back(std::move(file_json));
+        }
+
+        nlohmann::json program_json;
+        program_json["files"] = std::move(files);
+        fmt::print("Full AST:\n{}\n", program_json.dump(2));
+    }
+
     return 0;
 }
 
