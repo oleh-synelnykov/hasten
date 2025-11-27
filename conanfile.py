@@ -23,7 +23,7 @@ class hastenRecipe(ConanFile):
     def requirements(self):
         self.requires("boost/1.89.0")
         self.requires("spdlog/1.16.0")
-        self.requires("gtest/1.17.0")
+        self.test_requires("gtest/1.17.0")
 
     def layout(self):
         cmake_layout(self)
