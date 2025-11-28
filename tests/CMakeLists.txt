@@ -15,3 +15,5 @@ target_link_libraries(test_hasten PRIVATE
     hasten_cli
     hasten_frontend
 )
+
+add_test(NAME test_hasten COMMAND test_hasten)

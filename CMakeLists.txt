@@ -12,6 +12,7 @@ find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(GTest REQUIRED)
+enable_testing()
 
 # Hasten IDL static library
 add_subdirectory(src/idl)

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build-type: Release
+            preset: conan-release
+            build-dir: build/Release
+          - build-type: Debug
+            preset: conan-debug
+            build-dir: build/Debug
+    env:
+      BUILD_DIR: ${{ matrix.build-dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v1
+        with:
+          cmake-version: "3.30.2"
+
+      - name: Install Conan
+        run: pip install "conan>=2.0,<3.0"
+
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            ${{ runner.os }}-conan-
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Install dependencies
+        run: >
+          conan install . --build=missing
+          -s build_type=${{ matrix.build-type }}
+          -of $BUILD_DIR
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --output-on-failure --test-dir $BUILD_DIR
