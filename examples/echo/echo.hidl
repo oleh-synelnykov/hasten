@@ -1,0 +1,9 @@
+module sample.core;
+
+struct Payload {
+    1: string message;
+};
+
+interface Echo {
+    rpc Ping(1: Payload payload) -> (1: Payload reply);
+};
