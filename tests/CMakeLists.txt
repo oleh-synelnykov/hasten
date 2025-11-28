@@ -1,6 +1,7 @@
 add_executable(test_hasten
     test_cli_options.cpp
     test_cli.cpp
+    test_codegen.cpp
     test_frontend.cpp
     test_frontend_detail.cpp
     test_idl_rules.cpp
@@ -15,6 +16,7 @@ target_link_libraries(test_hasten PRIVATE
     GTest::gtest_main
     hasten_cli
     hasten_frontend
+    hasten_codegen
 )
 
 add_test(NAME test_hasten COMMAND test_hasten)

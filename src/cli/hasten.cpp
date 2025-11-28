@@ -1,6 +1,7 @@
 #include "cli/hasten.hpp"
 
 #include "cli/options.hpp"
+#include "codegen/generator.hpp"
 #include "idl/json_dump.hpp"
 #include "frontend/diagnostic.hpp"
 #include "frontend/frontend.hpp"
@@ -10,6 +11,7 @@
 #include <fmt/ostream.h>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
+#include <filesystem>
 
 namespace hasten
 {
@@ -76,7 +78,7 @@ int run(int argc, char* argv[])
         return 1;
     }
 
-    spdlog::info("Parsed program with {} files\n", program.files.size());
+    spdlog::info("Parsed program with {} files", program.files.size());
 
     if (opts->print_ast) {
         nlohmann::json files = nlohmann::json::array();
@@ -90,6 +92,31 @@ int run(int argc, char* argv[])
         nlohmann::json program_json;
         program_json["files"] = std::move(files);
         fmt::print("{}\n", program_json.dump(2));
+    }
+
+    if (!opts->check_only && !opts->print_ast) {
+        namespace fs = std::filesystem;
+        fs::path output_dir;
+        if (opts->output_dir) {
+            output_dir = fs::path(*opts->output_dir);
+        } else {
+            fs::path input_path(opts->input_file);
+            output_dir = input_path.parent_path();
+            if (output_dir.empty()) {
+                output_dir = fs::current_path();
+            }
+        }
+
+        codegen::GenerationOptions gen_opts;
+        gen_opts.output_dir = output_dir;
+
+        codegen::Generator generator{program, std::move(gen_opts)};
+        if (auto result = generator.run(); !result) {
+            spdlog::error("Code generation failed: {}", result.error());
+            return 1;
+        }
+
+        spdlog::info("Generated sources under {}", fs::absolute(output_dir).string());
     }
 
     return 0;

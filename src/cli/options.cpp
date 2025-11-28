@@ -24,7 +24,8 @@ std::expected<Options, std::string> parse_command_line(int argc, char* argv[])
             "Output directory. If not specified, use the same directory as input file.")
         ("check-only,c", po::bool_switch(&opts.check_only), "Only check the input IDL for errors")
         ("print-ast,a", po::bool_switch(&opts.print_ast), "Emit parsed AST as JSON")
-        ("assign-uids,u", po::bool_switch(&opts.assign_uids), "Assign unique IDs to AST nodes");
+        ("assign-uids,u", po::bool_switch(&opts.assign_uids), "Assign unique IDs to AST nodes")
+    ;
     // clang-format on
 
     po::positional_options_description positional;

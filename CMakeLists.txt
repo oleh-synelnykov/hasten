@@ -17,8 +17,14 @@ enable_testing()
 # Hasten IDL static library
 add_subdirectory(src/idl)
 
+# Runtime interfaces
+add_subdirectory(src/runtime)
+
 # Hasten Frontend static library
 add_subdirectory(src/frontend)
+
+# Codegen library
+add_subdirectory(src/codegen)
 
 # Hasten CLI static library
 add_subdirectory(src/cli)
@@ -31,6 +37,8 @@ add_executable(hasten
 target_link_libraries(hasten
     hasten_cli
     hasten_frontend
+    hasten_codegen
+    hasten_runtime
     boost::boost
     fmt::fmt
     spdlog::spdlog

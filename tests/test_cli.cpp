@@ -110,7 +110,7 @@ TEST_F(Cli, TestRunWithInputFile)
     std::string expectation_one =
         fmt::format("Hasten v{}.{}.{}\n", HASTEN_VERSION_MAJOR, HASTEN_VERSION_MINOR, HASTEN_VERSION_PATCH);
 
-    std::string expectation_two = "Parsed program with 1 files\n\n";
+    std::string expectation_two = "Parsed program with 1 files\n";
 
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_NE(output.find(expectation_one), std::string::npos);
