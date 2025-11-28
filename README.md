@@ -1,5 +1,7 @@
 # Hasten
 
+![Build and unit tests](https://github.com/oleh-synelnykov/hasten/actions/workflows/ci.yml/badge.svg)
+
 Hasten (/ˈheɪ.s<sup>ə</sup>n/) is the local RPC framework for C++.
 
 ## Requirements
