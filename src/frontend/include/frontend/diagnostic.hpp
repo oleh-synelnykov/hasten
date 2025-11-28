@@ -35,6 +35,8 @@ class DiagnosticSink
 public:
     void report(Severity severity, SourceLocation location, std::string message);
     bool has_errors() const;
+    bool has_warnings() const;
+    bool has_notes() const;
     void clear();
 
     const std::vector<Diagnostic>& diagnostics() const;

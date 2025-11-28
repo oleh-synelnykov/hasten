@@ -203,6 +203,126 @@ TEST_F(Cli, TestRunOutputWithDuplicateResultIds) {
     EXPECT_NE(output.find("Duplicate result field id '1' in method 'baz'"), std::string::npos);
 }
 
+TEST_F(Cli, TestRunWithUnknownUserType)
+{
+    testing::internal::CaptureStdout();
+
+    auto idl = R"IDL(
+        module sample;
+        struct Foo {
+            1: MissingType value;
+        };
+    )IDL";
+
+    auto idl_path = WriteFile("unknown.idl", idl);
+
+    int argc = 2;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(idl_path.c_str())};
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 1);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(output.find("Unknown type 'MissingType' referenced in field 'value' of struct 'Foo'"),
+              std::string::npos);
+}
+
+TEST_F(Cli, TestRunWithDuplicateModules)
+{
+    testing::internal::CaptureStdout();
+
+    auto main_idl = R"IDL(
+        module sample;
+        import "other.idl";
+        struct Foo { 1: i32 id; };
+    )IDL";
+
+    auto other_idl = R"IDL(
+        module sample;
+        struct Bar { 1: i32 id; };
+    )IDL";
+
+    auto main_path = WriteFile("main.idl", main_idl);
+    WriteFile("other.idl", other_idl);
+
+    int argc = 2;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(main_path.c_str())};
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 1);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(output.find("Module 'sample' already defined"), std::string::npos);
+}
+
+TEST_F(Cli, TestRunWithInvalidMapKey)
+{
+    testing::internal::CaptureStdout();
+
+    auto idl = R"IDL(
+        module sample;
+        struct Foo {
+            1: map<vector<i32>, string> data;
+        };
+    )IDL";
+
+    auto idl_path = WriteFile("map.idl", idl);
+
+    int argc = 2;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(idl_path.c_str())};
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 1);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(output.find("Map key in field 'data' of struct 'Foo' must be a primitive or enum type"),
+              std::string::npos);
+}
+
+TEST_F(Cli, TestRunWithNestedOptional)
+{
+    testing::internal::CaptureStdout();
+
+    auto idl = R"IDL(
+        module sample;
+        struct Foo {
+            1: optional<optional<i64>> value;
+        };
+    )IDL";
+
+    auto idl_path = WriteFile("optional.idl", idl);
+
+    int argc = 2;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(idl_path.c_str())};
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 1);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(output.find("Nested optional types are not allowed in field 'value' of struct 'Foo'"),
+              std::string::npos);
+}
+
+TEST_F(Cli, TestWarningForFieldIdGaps)
+{
+    testing::internal::CaptureStdout();
+
+    auto idl = R"IDL(
+        module sample;
+        struct Foo {
+            1: i32 a;
+            3: i32 c;
+        };
+    )IDL";
+
+    auto idl_path = WriteFile("gap.idl", idl);
+
+    int argc = 2;
+    char* argv[] = {const_cast<char*>("hasten"), const_cast<char*>(idl_path.c_str())};
+    int result = hasten::run(argc, argv);
+    EXPECT_EQ(result, 0);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(output.find("Gap detected between 1 and 3 for field ids in struct 'Foo'"), std::string::npos);
+    EXPECT_NE(output.find("Semantic analysis diagnostics"), std::string::npos);
+}
+
 TEST_F(Cli, TestPrintAstOutputsJson)
 {
     testing::internal::CaptureStdout();

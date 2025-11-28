@@ -6,7 +6,7 @@ Hasten IDL is a domain-specific language (DSL) for describing request/response R
 
 ## Key properties
 
-Each `.hidl` file starts with a `module` declaration and may import other files. Modules are dot-separated namespaces that flow into generated code. Unknown numeric IDs are ignored at runtime, letting newer schema versions interoperate with older peers as long as IDs are never reused.
+Each `.hidl` file starts with a single `module` declaration and may import other files. Modules are dot-separated namespaces that flow into generated code. Defining the same module name in multiple files is rejected. Unknown numeric IDs are ignored at runtime, letting newer schema versions interoperate with older peers as long as IDs are never reused.
 
 It is possible to import other files to reuse declarations, constants, enums, structs, and interfaces.
 
@@ -15,7 +15,7 @@ C/C++ style comments are supported - `//` or `/* ... */` and they are ignored by
 ## Type system
 
 - **Primitives:** `bool`, signed/unsigned integers (`i8`…`i64`, `u8`…`u64`), `f32`, `f64`, `string`, `bytes`.
-- **Containers:** `vector<T>`, `map<K,V>` (scalar/hashable keys), `optional<T>`.
+- **Containers:** `vector<T>`, `map<K,V>` (map keys must be primitive scalars or enums), `optional<T>`. Nested `optional<optional<...>>` forms are rejected during semantic analysis because they cannot be encoded unambiguously.
 - **User types:** previously declared structs/enums/interfaces referenced by qualified name.
 - **Interface references:** referencing an `interface` type encodes a capability handle on the wire (see “Interface references & UIDs”).
 
@@ -37,10 +37,12 @@ Every struct field, method parameter, and tuple-style return field has a **stabl
 
 Guidelines:
 
-1. Adding a new optional field/parameter with a fresh ID is backward compatible.
-2. Renaming a field keeps the same ID; generated code changes do not affect the wire.
-3. Type changes must be widening or otherwise wire-compatible (e.g., `u32 → u64`).
-4. Removing fields requires marking them with `deprecated` attribute and reserving the ID indefinitely.
+1. IDs must be positive 32-bit signed integers (range `1 … 2,147,483,647`). `0` or out-of-range IDs are hard errors.
+2. Adding a new optional field/parameter with a fresh ID is backward compatible.
+3. Renaming a field keeps the same ID; generated code changes do not affect the wire.
+4. Type changes must be widening or otherwise wire-compatible (e.g., `u32 → u64`).
+5. Removing fields requires marking them with `deprecated` attribute and reserving the ID indefinitely.
+6. Gaps (e.g., jumping from `1` to `3`) are legal but Hasten emits a warning to help keep numbering dense.
 
 ```hidl
 struct User {
@@ -64,6 +66,20 @@ Attributes appear in square brackets after declarations, fields, methods, or par
 
 - Any user type that resolves to an `interface` is encoded as a **capability reference**. On the wire it carries `{type_uid, instance_id, endpoint_hint}` so capabilities can be passed around safely.
 - Interfaces (and optionally structs/enums) should declare `[uid="urn:uuid:..."]`. The CLI can mint deterministic UUIDv5 values via `hasten --assign-uids` and validate them with `--check-uids` or a `uids.json` registry.
+
+## Semantic rules enforced by `hasten`
+
+Beyond syntactic parsing, the CLI runs a set of semantic passes that mirror the checks performed inside `src/frontend/semantics`:
+
+- Exactly one `module` per file, and module names cannot be duplicated across files.
+- Struct fields, enum items, interface methods, method parameters, and tuple result fields must have unique names within their scope.
+- Every `UserType` reference must resolve either fully-qualified or via the current module namespace; unknown types are errors.
+- Map keys must be primitive scalars or enums; container/struct/interface types are rejected.
+- Nested optionals (e.g., `optional<optional<T>>`) are invalid.
+- Field/parameter/result IDs must be unique, start at `1`, and fit within signed 32-bit range; gaps are warned but tolerated.
+- All diagnostics include file information. Errors abort code generation; warnings still generate code but surface in CLI output.
+
+These rules are meant to keep schemas predictable and keep generated code deterministic. If you need stricter policies (e.g., mandatory `[uid]` attributes), you can extend the semantics passes.
 
 ## Tooling & workflow
 

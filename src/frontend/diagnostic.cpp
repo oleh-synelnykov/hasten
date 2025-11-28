@@ -17,6 +17,22 @@ bool DiagnosticSink::has_errors() const
     return std::any_of(_diagnostics.begin(), _diagnostics.end(), is_error);
 }
 
+bool DiagnosticSink::has_warnings() const
+{
+    auto is_warning = [](const auto& d) {
+        return d.severity == Severity::Warning;
+    };
+    return std::any_of(_diagnostics.begin(), _diagnostics.end(), is_warning);
+}
+
+bool DiagnosticSink::has_notes() const
+{
+    auto is_note = [](const auto& d) {
+        return d.severity == Severity::Note;
+    };
+    return std::any_of(_diagnostics.begin(), _diagnostics.end(), is_note);
+}
+
 void DiagnosticSink::clear()
 {
     _diagnostics.clear();
