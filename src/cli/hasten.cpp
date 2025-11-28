@@ -4,7 +4,7 @@
 #include "idl/json_dump.hpp"
 #include "frontend/diagnostic.hpp"
 #include "frontend/frontend.hpp"
-#include "frontend/semantics/validator.hpp"
+#include "frontend/semantic/validator.hpp"
 
 #include <fmt/core.h>
 #include <fmt/ostream.h>
@@ -39,7 +39,7 @@ int run(int argc, char* argv[])
     // Validate
     frontend::Program& program = maybe_program.value();
     frontend::DiagnosticSink diagnostics;
-    frontend::SemanticsValidator validator{program, diagnostics};
+    frontend::semantic::Validator validator{program, diagnostics};
     validator.run();
 
     const bool has_any_diagnostics = !diagnostics.diagnostics().empty();

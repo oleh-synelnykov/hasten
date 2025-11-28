@@ -5,6 +5,7 @@ add_executable(test_hasten
     test_frontend_detail.cpp
     test_idl_rules.cpp
     test_parser.cpp
+    test_semantic.cpp
 )
 
 find_package(Boost REQUIRED)
