@@ -17,9 +17,6 @@ testing::AssertionResult parse_rule(const std::string& input, Rule const& rule, 
     auto first = input.begin();
     auto last = input.end();
 
-    // Create a position cache for this buffer
-    position_cache_type positions(first, last);
-
     // error handling
     using error_handler_t = x3::error_handler<hasten::idl::parser::iterator_type>;
     error_handler_t err_handler(first, last, std::cerr);
@@ -27,9 +24,7 @@ testing::AssertionResult parse_rule(const std::string& input, Rule const& rule, 
     // clang-format off
     const auto parser =
         x3::with<x3::error_handler_tag>(std::ref(err_handler))[
-            x3::with<position_cache_tag>(std::ref(positions))[
-                rule
-            ]
+            rule
         ];
     // clang-format on
 

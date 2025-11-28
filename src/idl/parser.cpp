@@ -19,9 +19,6 @@ std::expected<ParseResult, std::string> parse_file(const std::string& input)
 
     std::ostringstream diag_stream;
 
-    // Create a position cache for this buffer
-    position_cache_type positions(iter, end);
-
     // error handling
     using error_handler_t = x3::error_handler<hasten::idl::parser::iterator_type>;
     error_handler_t err_handler(iter, end, diag_stream);
@@ -29,9 +26,7 @@ std::expected<ParseResult, std::string> parse_file(const std::string& input)
     // clang-format off
     const auto parser =
         x3::with<x3::error_handler_tag>(std::ref(err_handler))[
-            x3::with<position_cache_tag>(std::ref(positions))[
-                module()
-            ]
+            module()
         ];
     // clang-format on
 
@@ -54,7 +49,7 @@ std::expected<ParseResult, std::string> parse_file(const std::string& input)
 
     return ParseResult{
         .module = std::move(m),
-        .position_cache = std::move(positions)
+        .position_cache = err_handler.get_position_cache()
     };
 }
 

@@ -207,12 +207,11 @@ TEST_F(Cli, TestRunWithUnknownUserType)
 {
     testing::internal::CaptureStdout();
 
-    auto idl = R"IDL(
-        module sample;
-        struct Foo {
-            1: MissingType value;
-        };
-    )IDL";
+    auto idl = R"IDL(module sample;
+struct Foo {
+  1: MissingType value;
+};
+)IDL";
 
     auto idl_path = WriteFile("unknown.idl", idl);
 
@@ -224,6 +223,7 @@ TEST_F(Cli, TestRunWithUnknownUserType)
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_NE(output.find("Unknown type 'MissingType' referenced in field 'value' of struct 'Foo'"),
               std::string::npos);
+    EXPECT_NE(output.find(idl_path.string() + ":3:6:"), std::string::npos);
 }
 
 TEST_F(Cli, TestRunWithDuplicateModules)
@@ -257,12 +257,11 @@ TEST_F(Cli, TestRunWithInvalidMapKey)
 {
     testing::internal::CaptureStdout();
 
-    auto idl = R"IDL(
-        module sample;
-        struct Foo {
-            1: map<vector<i32>, string> data;
-        };
-    )IDL";
+    auto idl = R"IDL(module sample;
+struct Foo {
+  1: map<vector<i32>, string> data;
+};
+)IDL";
 
     auto idl_path = WriteFile("map.idl", idl);
 
@@ -274,6 +273,7 @@ TEST_F(Cli, TestRunWithInvalidMapKey)
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_NE(output.find("Map key in field 'data' of struct 'Foo' must be a primitive or enum type"),
               std::string::npos);
+    EXPECT_NE(output.find(idl_path.string() + ":3:3:"), std::string::npos);
 }
 
 TEST_F(Cli, TestRunWithNestedOptional)

@@ -19,19 +19,11 @@ using position_cache_type = x3::position_cache<std::vector<iterator_type>>;
 using skipper_context_type = x3::phrase_parse_context<rule::Skipper>::type;
 
 // clang-format off
-using error_handling_context_type =
+using context_type =
     x3::context<
         x3::error_handler_tag,
         std::reference_wrapper<error_context_type>,
         skipper_context_type>;
-
-struct position_cache_tag {};
-
-using context_type =
-    x3::context<
-        class position_cache_tag,
-        std::reference_wrapper<position_cache_type>,
-        error_handling_context_type>;
 // clang-format on
 
 

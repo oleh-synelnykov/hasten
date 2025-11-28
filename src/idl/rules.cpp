@@ -45,10 +45,23 @@ BOOST_SPIRIT_INSTANTIATE(Import, iterator_type, context_type);
 BOOST_SPIRIT_INSTANTIATE(ModuleDeclaration, iterator_type, context_type);
 BOOST_SPIRIT_INSTANTIATE(Module, iterator_type, context_type);
 
-struct ModuleDeclarationRuleClass : GenericParsingErrorHandler, x3::annotate_on_success {
-};
+#define DEFINE_ANNOTATED_RULE(rule_name) \
+    struct rule_name##RuleClass : GenericParsingErrorHandler, x3::annotate_on_success {}
 
-struct InterfaceRuleClass : GenericParsingErrorHandler, x3::annotate_on_success {
-};
+DEFINE_ANNOTATED_RULE(ModuleDeclaration);
+DEFINE_ANNOTATED_RULE(Interface);
+DEFINE_ANNOTATED_RULE(Module);
+DEFINE_ANNOTATED_RULE(Import);
+DEFINE_ANNOTATED_RULE(Struct);
+DEFINE_ANNOTATED_RULE(Enum);
+DEFINE_ANNOTATED_RULE(EnumItem);
+DEFINE_ANNOTATED_RULE(Field);
+DEFINE_ANNOTATED_RULE(Parameter);
+DEFINE_ANNOTATED_RULE(ReturnField);
+DEFINE_ANNOTATED_RULE(Method);
+DEFINE_ANNOTATED_RULE(UserType);
+DEFINE_ANNOTATED_RULE(Attribute);
+
+#undef DEFINE_ANNOTATED_RULE
 
 }  // namespace hasten::idl::parser::rule
