@@ -1,19 +1,22 @@
 # Hasten
 
-RPC framework for C++
+Hasten (/ˈheɪ.s<sup>ə</sup>n/) is the local RPC framework for C++.
 
 ## Requirements
 
 - CMake 3.30+
 - Conan 2.0+
-- C++20 compiler
+- C++23 compiler (with Clang libc++ 17+ or GCC libstdc++ 13+)
 
 ## Building
 
 ### Dependencies
 
-- Boost 1.89+
+See `requirements()` method in conanfile.py for exact versions.
+
+- Boost 1.89+ (older version will probably work)
 - spdlog 1.16+
+- nlohmann_json 3.11+
 - gtest 1.17+
 
 ### Install dependencies
@@ -48,7 +51,7 @@ cmake --build --preset=conan-<release|debug>
 #### Run tests
 
 ```bash
-./build/<Debug|Release>/test_idl_rules
+./build/<Debug|Release>/tests/test_hasten
 ```
 
 ## Tooling
