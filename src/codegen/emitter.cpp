@@ -4,8 +4,8 @@
 #include "ir.hpp"
 #include "ostream_joiner.hpp"
 
-#include <algorithm>
 #include <filesystem>
+#include <cctype>
 #include <sstream>
 #include <unordered_map>
 #include <utility>
@@ -14,6 +14,8 @@
 #include <boost/range/algorithm/copy.hpp>
 #include <boost/variant/apply_visitor.hpp>
 #include <boost/variant/static_visitor.hpp>
+#include <boost/variant/get.hpp>
+#include "hasten/runtime/serialization/hb1.hpp"
 
 #include <fmt/format.h>
 
@@ -21,6 +23,11 @@ namespace hasten::codegen
 {
 namespace
 {
+
+namespace ast = idl::ast;
+
+constexpr std::uint64_t kFNVOffset = 1469598103934665603ULL;
+constexpr std::uint64_t kFNVPrime = 1099511628211ULL;
 
 constexpr int kIndentWidth = 4;
 
@@ -61,7 +68,20 @@ TupleInfo build_tuple_info(const ir::Module& module)
     return info;
 }
 
-namespace ast = idl::ast;
+std::uint64_t stable_hash(std::string_view text)
+{
+    std::uint64_t hash = kFNVOffset;
+    for (unsigned char c : text) {
+        hash ^= static_cast<std::uint64_t>(c);
+        hash *= kFNVPrime;
+    }
+    return hash;
+}
+
+std::string hash_literal(std::string_view text)
+{
+    return fmt::format("{}ULL", stable_hash(text));
+}
 
 class TypeMapper : public boost::static_visitor<std::string>
 {
@@ -222,8 +242,149 @@ std::string module_base_name(const ir::Module& module)
     return result;
 }
 
+struct Hb1FieldInfo {
+    hasten::runtime::hb1::WireType wire_type = hasten::runtime::hb1::WireType::Varint;
+    hasten::runtime::hb1::ValueKind value_kind = hasten::runtime::hb1::ValueKind::Unsigned;
+    bool optional = false;
+};
+
+Hb1FieldInfo describe_type(const ast::Type& type)
+{
+    Hb1FieldInfo info;
+    if (const auto* prim = boost::get<ast::Primitive>(&type)) {
+        using ast::PrimitiveKind;
+        switch (prim->kind) {
+            case PrimitiveKind::Bool:
+            case PrimitiveKind::U8:
+            case PrimitiveKind::U16:
+            case PrimitiveKind::U32:
+            case PrimitiveKind::U64:
+                info.wire_type = hasten::runtime::hb1::WireType::Varint;
+                info.value_kind = hasten::runtime::hb1::ValueKind::Unsigned;
+                break;
+            case PrimitiveKind::I8:
+            case PrimitiveKind::I16:
+            case PrimitiveKind::I32:
+            case PrimitiveKind::I64:
+                info.wire_type = hasten::runtime::hb1::WireType::ZigZagVarint;
+                info.value_kind = hasten::runtime::hb1::ValueKind::Signed;
+                break;
+            case PrimitiveKind::F32:
+                info.wire_type = hasten::runtime::hb1::WireType::Fixed32;
+                info.value_kind = hasten::runtime::hb1::ValueKind::Unsigned;
+                break;
+            case PrimitiveKind::F64:
+                info.wire_type = hasten::runtime::hb1::WireType::Fixed64;
+                info.value_kind = hasten::runtime::hb1::ValueKind::Unsigned;
+                break;
+            case PrimitiveKind::String:
+                info.wire_type = hasten::runtime::hb1::WireType::LengthDelimited;
+                info.value_kind = hasten::runtime::hb1::ValueKind::String;
+                break;
+            case PrimitiveKind::Bytes:
+                info.wire_type = hasten::runtime::hb1::WireType::LengthDelimited;
+                info.value_kind = hasten::runtime::hb1::ValueKind::Bytes;
+                break;
+        }
+        return info;
+    }
+    if (const auto* opt = boost::get<ast::Optional>(&type)) {
+        auto inner = describe_type(opt->inner);
+        inner.optional = true;
+        return inner;
+    }
+    // user types, vectors, maps treated as length-delimited blobs for now.
+    info.wire_type = hasten::runtime::hb1::WireType::LengthDelimited;
+    info.value_kind = hasten::runtime::hb1::ValueKind::Bytes;
+    return info;
+}
+
+std::string wire_type_literal(hasten::runtime::hb1::WireType type)
+{
+    switch (type) {
+        case hasten::runtime::hb1::WireType::Varint:
+            return "hasten::runtime::hb1::WireType::Varint";
+        case hasten::runtime::hb1::WireType::ZigZagVarint:
+            return "hasten::runtime::hb1::WireType::ZigZagVarint";
+        case hasten::runtime::hb1::WireType::Fixed32:
+            return "hasten::runtime::hb1::WireType::Fixed32";
+        case hasten::runtime::hb1::WireType::Fixed64:
+            return "hasten::runtime::hb1::WireType::Fixed64";
+        case hasten::runtime::hb1::WireType::LengthDelimited:
+            return "hasten::runtime::hb1::WireType::LengthDelimited";
+        case hasten::runtime::hb1::WireType::Capability:
+            return "hasten::runtime::hb1::WireType::Capability";
+    }
+    return "hasten::runtime::hb1::WireType::Varint";
+}
+
+std::string value_kind_literal(hasten::runtime::hb1::ValueKind kind)
+{
+    switch (kind) {
+        case hasten::runtime::hb1::ValueKind::Unsigned:
+            return "hasten::runtime::hb1::ValueKind::Unsigned";
+        case hasten::runtime::hb1::ValueKind::Signed:
+            return "hasten::runtime::hb1::ValueKind::Signed";
+        case hasten::runtime::hb1::ValueKind::String:
+            return "hasten::runtime::hb1::ValueKind::String";
+        case hasten::runtime::hb1::ValueKind::Bytes:
+            return "hasten::runtime::hb1::ValueKind::Bytes";
+    }
+    return "hasten::runtime::hb1::ValueKind::Unsigned";
+}
+
+std::string descriptor_initializer(const ir::Field& field)
+{
+    auto info = describe_type(field.type);
+    return fmt::format(
+        "{{{}, {}, {}, {}}}",
+        field.id,
+        wire_type_literal(info.wire_type),
+        info.optional ? "true" : "false",
+        value_kind_literal(info.value_kind));
+}
+
+std::string descriptor_initializer_from_type(const ast::Type& type, std::uint32_t id = 1)
+{
+    ir::Field synthetic;
+    synthetic.id = id;
+    synthetic.type = type;
+    return descriptor_initializer(synthetic);
+}
+
+std::string emit_descriptor_array(const std::string& indent,
+                                  std::string_view qualifier,
+                                  const std::string& name,
+                                  const std::vector<ir::Field>& fields)
+{
+    std::ostringstream out;
+    out << indent << qualifier << "std::array<hasten::runtime::hb1::FieldDescriptor, "
+        << fields.size() << "> " << name << " = {";
+    if (fields.empty()) {
+        out << "};\n";
+        return out.str();
+    }
+    out << "\n";
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        out << indent << "    " << descriptor_initializer(fields[i]);
+        out << (i + 1 == fields.size() ? "\n" : ",\n");
+    }
+    out << indent << "};\n";
+    return out.str();
+}
+
+std::vector<ir::Field> single_field_vector(const ast::Type& type)
+{
+    std::vector<ir::Field> fields;
+    ir::Field field;
+    field.id = 1;
+    field.type = type;
+    fields.push_back(field);
+    return fields;
+}
+
 std::string method_result_type(const ir::Method& method, const TypeMapper& mapper,
-                               const TupleNameLookup& tuple_names)
+                               const std::unordered_map<const ir::Method*, std::string>& tuple_names)
 {
     if (!method.result_fields.empty()) {
         auto it = tuple_names.find(&method);
@@ -248,8 +409,10 @@ void generate_header_includes(std::ostream& os)
     os << "#include \"hasten/runtime/channel.hpp\"\n";
     os << "#include \"hasten/runtime/executor.hpp\"\n";
     os << "#include \"hasten/runtime/result.hpp\"\n";
+    os << "#include \"hasten/runtime/serialization/hb1.hpp\"\n";
     os << "#include \"hasten/runtime/uds.hpp\"\n";
     os << "\n";
+    os << "#include <array>\n";
     os << "#include <cstdint>\n";
     os << "#include <expected>\n";
     os << "#include <functional>\n";
@@ -394,6 +557,79 @@ void generate_uds_client_creation(std::ostream& os, int indent_level, const ir::
        << indent << "}\n\n";
 }
 
+void generate_metadata(std::ostream& os, int indent_level, const ir::Module& module)
+{
+    const std::string indent = indentation(indent_level);
+    const std::string level = indentation(1);
+
+    os << indent << "namespace detail {\n\n";
+
+    os << indent << "inline void append_varint(std::vector<std::uint8_t>& buffer, std::uint64_t value) {\n";
+    os << indent << "    while (value >= 0x80) {\n";
+    os << indent << "        buffer.push_back(static_cast<std::uint8_t>(value | 0x80));\n";
+    os << indent << "        value >>= 7;\n";
+    os << indent << "    }\n";
+    os << indent << "    buffer.push_back(static_cast<std::uint8_t>(value));\n";
+    os << indent << "}\n";
+
+    os << indent << "inline hasten::runtime::Result<std::uint64_t> read_varint(const std::vector<std::uint8_t>& buffer, std::size_t& offset) {\n";
+    os << indent << "    std::uint64_t result = 0;\n";
+    os << indent << "    int shift = 0;\n";
+    os << indent << "    while (offset < buffer.size()) {\n";
+    os << indent << "        std::uint8_t byte = buffer[offset++];\n";
+    os << indent << "        result |= static_cast<std::uint64_t>(byte & 0x7F) << shift;\n";
+    os << indent << "        if ((byte & 0x80) == 0) {\n";
+    os << indent << "            return result;\n";
+    os << indent << "        }\n";
+    os << indent << "        shift += 7;\n";
+    os << indent << "        if (shift >= 64) {\n";
+    os << indent << "            return hasten::runtime::unexpected_result<std::uint64_t>(hasten::runtime::ErrorCode::TransportError, \"varint too long\");\n";
+    os << indent << "        }\n";
+    os << indent << "    }\n";
+    os << indent << "    return hasten::runtime::unexpected_result<std::uint64_t>(hasten::runtime::ErrorCode::TransportError, \"truncated varint\");\n";
+    os << indent << "}\n\n";
+
+    for (const auto& struct_ir : module.structs) {
+        const auto array_name = struct_ir.name + "_FieldDescriptors";
+        os << emit_descriptor_array(indent, "inline constexpr ", array_name, struct_ir.fields) << "\n";
+    }
+
+    for (const auto& iface : module.interfaces) {
+        const auto iface_meta_name = iface.name + "Metadata";
+        std::string iface_full_name = module.name + "." + iface.name;
+        os << indent << "struct " << iface_meta_name << " {\n";
+        os << indent << level << "static constexpr std::uint64_t module_id = " << hash_literal(module.name) << ";\n";
+        os << indent << level << "static constexpr std::uint64_t interface_id = "
+            << hash_literal(iface_full_name) << ";\n";
+        os << '\n';
+        for (const auto& method : iface.methods) {
+            const auto method_meta_name = method.name + "Metadata";
+            std::string method_full_name = iface_full_name + "." + method.name;
+            os << indent << level << "struct " << method_meta_name << " {\n";
+            os << indent << level << level << "static constexpr std::uint64_t method_id = "
+                << hash_literal(method_full_name) << ";\n";
+            os << emit_descriptor_array(indent + "        ", "static constexpr ",
+                                         method_meta_name + "RequestFields", method.parameters);
+            if (!method.result_fields.empty()) {
+                os << emit_descriptor_array(indent + "        ", "static constexpr ",
+                                             method_meta_name + "ResponseFields", method.result_fields);
+            } else if (method.result_type) {
+                auto single = single_field_vector(*method.result_type);
+                os << emit_descriptor_array(indent + "        ", "static constexpr ",
+                                             method_meta_name + "ResponseFields", single);
+            } else {
+                std::vector<ir::Field> none;
+                os << emit_descriptor_array(indent + "        ", "static constexpr ",
+                                             method_meta_name + "ResponseFields", none);
+            }
+            os << indent << "    };\n\n";
+        }
+        os << indent << "};\n\n";
+    }
+
+    os << indent << "}  // namespace detail\n\n";
+}
+
 std::string generate_header(const ir::Module& module, const TupleInfo& tuple_info,
                             const GenerationOptions& options)
 {
@@ -427,6 +663,8 @@ std::string generate_header(const ir::Module& module, const TupleInfo& tuple_inf
     for (const auto& iface : module.interfaces) {
         generate_uds_client_creation(out, indent_level, iface);
     }
+
+    generate_metadata(out, indent_level, module);
 
     close_namespaces(out, module);
     out << '\n';
