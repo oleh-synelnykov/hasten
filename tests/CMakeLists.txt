@@ -8,6 +8,7 @@ add_executable(test_hasten
     test_parser.cpp
     test_semantic.cpp
     test_runtime.cpp
+    test_runtime_serialization.cpp
 )
 
 find_package(Boost REQUIRED)
