@@ -14,6 +14,7 @@ class Server
 public:
     ~Server();
     Result<std::shared_ptr<Channel>> accept();
+    void close();
 
 private:
     friend Result<std::shared_ptr<Server>> listen(const std::string& path);
@@ -25,5 +26,6 @@ private:
 Result<std::shared_ptr<Server>> listen(const std::string& path);
 Result<std::shared_ptr<Channel>> connect(const std::string& path);
 std::shared_ptr<Dispatcher> make_dispatcher();
+Result<std::pair<std::shared_ptr<Channel>, std::shared_ptr<Channel>>> socket_pair();
 
 }  // namespace hasten::runtime::uds

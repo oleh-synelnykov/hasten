@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.30)
 
 add_library(hasten_runtime STATIC
+    context.cpp
+    frame.cpp
     uds.cpp
 )
 

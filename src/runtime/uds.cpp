@@ -3,8 +3,11 @@
 #include "hasten/runtime/error.hpp"
 
 #include <atomic>
+#include <array>
 #include <cerrno>
 #include <cstring>
+#include <limits>
+#include <poll.h>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -12,6 +15,7 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -50,12 +54,17 @@ public:
     explicit UdsChannel(int fd)
         : fd_(fd)
     {
+        wake_fd_ = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+        if (wake_fd_ < 0) {
+            throw std::system_error(errno, std::generic_category(), "eventfd");
+        }
     }
 
     ~UdsChannel() override
     {
-        if (fd_ >= 0) {
-            ::close(fd_);
+        close();
+        if (wake_fd_ >= 0) {
+            ::close(wake_fd_);
         }
     }
 
@@ -64,42 +73,89 @@ public:
         return Encoding::Hb1;
     }
 
-    Result<void> send(Frame frame) override
+    Result<void> send(Frame frame) override;
+    Result<Frame> receive() override;
+    void close() override;
+
+private:
+    int fd() const
     {
-        if (fd_ < 0) {
-            return unexpected_result(ErrorCode::TransportError, "Invalid channel file descriptor");
-        }
+        return fd_.load(std::memory_order_relaxed);
+    }
 
-        std::uint32_t payload_size = static_cast<std::uint32_t>(frame.payload.size());
-        std::uint32_t type = htonl(frame.type);
-        std::uint32_t flags = htonl(frame.flags);
-        std::uint64_t stream = hton64(frame.stream_id);
-
-        std::vector<std::uint8_t> buffer;
-        buffer.reserve(sizeof(type) + sizeof(flags) + sizeof(stream) + sizeof(payload_size) +
-                       frame.payload.size());
-
-        auto append = [&buffer](const auto& value) {
-            const std::uint8_t* ptr = reinterpret_cast<const std::uint8_t*>(&value);
-            buffer.insert(buffer.end(), ptr, ptr + sizeof(value));
-        };
-
-        append(type);
-        append(flags);
-        append(stream);
-        append(payload_size);
-        buffer.insert(buffer.end(), frame.payload.begin(), frame.payload.end());
-
-        ssize_t written = ::write(fd_, buffer.data(), buffer.size());
-        if (written < 0 || static_cast<std::size_t>(written) != buffer.size()) {
-            int err = errno;
-            return unexpected_result(make_errno_error("write", err));
+    static Result<void> write_full(int fd, const std::uint8_t* data, std::size_t size)
+    {
+        std::size_t written = 0;
+        while (written < size) {
+            ssize_t rc = ::write(fd, data + written, size - written);
+            if (rc < 0) {
+                int err = errno;
+                if (err == EINTR) {
+                    continue;
+                }
+                return unexpected_result(make_errno_error("write", err));
+            }
+            written += static_cast<std::size_t>(rc);
         }
         return {};
     }
 
-private:
-    int fd_ = -1;
+    static Result<void> read_full(int fd, int wake_fd, std::uint8_t* data, std::size_t size)
+    {
+        std::size_t read_bytes = 0;
+        while (read_bytes < size) {
+            struct pollfd fds[2];
+            fds[0].fd = fd;
+            fds[0].events = POLLIN;
+            fds[0].revents = 0;
+            fds[1].fd = wake_fd;
+            fds[1].events = POLLIN;
+            fds[1].revents = 0;
+
+            int rc = ::poll(fds, 2, -1);
+            if (rc < 0) {
+
+                int err = errno;
+                if (err == EINTR) {
+                    continue;
+                }
+                return unexpected_result(make_errno_error("poll", err));
+            }
+
+            if (fds[1].revents & POLLIN) {
+                std::uint64_t value;
+                while (::read(wake_fd, &value, sizeof(value)) > 0) {
+                }
+                return unexpected_result(ErrorCode::Cancelled, "Channel closed");
+            }
+
+            if (fds[0].revents & (POLLERR | POLLNVAL)) {
+                int err = errno;
+                return unexpected_result(make_errno_error("poll", err));
+            }
+
+            if (!(fds[0].revents & (POLLIN | POLLHUP))) {
+                continue;
+            }
+
+            ssize_t read_rc = ::read(fd, data + read_bytes, size - read_bytes);
+            if (read_rc < 0) {
+                int err = errno;
+                if (err == EINTR) {
+                    continue;
+                }
+                return unexpected_result(make_errno_error("read", err));
+            }
+            if (read_rc == 0) {
+                return unexpected_result(ErrorCode::TransportError, "peer closed connection");
+            }
+            read_bytes += static_cast<std::size_t>(read_rc);
+        }
+        return {};
+    }
+
+    std::atomic<int> fd_{-1};
+    int wake_fd_ = -1;
 };
 
 class SimpleDispatcher : public Dispatcher
@@ -151,6 +207,74 @@ Result<std::shared_ptr<Channel>> wrap_fd(int fd)
 
 }  // namespace
 
+Result<void> UdsChannel::send(Frame frame)
+{
+    int current_fd = fd();
+    if (current_fd < 0) {
+        return unexpected_result(ErrorCode::TransportError, "Invalid channel file descriptor");
+    }
+
+    if (frame.payload.size() > std::numeric_limits<std::uint32_t>::max()) {
+        return unexpected_result(ErrorCode::TransportError, "Frame payload too large");
+    }
+    frame.header.length = static_cast<std::uint32_t>(frame.payload.size());
+    std::array<std::uint8_t, FrameHeaderSize> header_buffer{};
+    if (auto res = encode_header(frame.header, header_buffer); !res) {
+        return res;
+    }
+
+    if (auto res = write_full(current_fd, header_buffer.data(), header_buffer.size()); !res) {
+        return res;
+    }
+
+    if (!frame.payload.empty()) {
+        if (auto res = write_full(current_fd, frame.payload.data(), frame.payload.size()); !res) {
+            return res;
+        }
+    }
+    return {};
+}
+
+Result<Frame> UdsChannel::receive()
+{
+    int current_fd = fd();
+    if (current_fd < 0) {
+        return unexpected_result<Frame>(ErrorCode::TransportError, "Invalid channel file descriptor");
+    }
+
+    std::array<std::uint8_t, FrameHeaderSize> header_buffer{};
+    if (auto res = read_full(current_fd, wake_fd_, header_buffer.data(), header_buffer.size()); !res) {
+        return std::unexpected(res.error());
+    }
+
+    auto header = decode_header(header_buffer);
+    if (!header) {
+        return std::unexpected(header.error());
+    }
+
+    Frame frame;
+    frame.header = *header;
+    if (frame.header.length > 0) {
+        frame.payload.resize(frame.header.length);
+        if (auto res = read_full(current_fd, wake_fd_, frame.payload.data(), frame.payload.size()); !res) {
+            return std::unexpected(res.error());
+        }
+    }
+    return frame;
+}
+
+void UdsChannel::close()
+{
+    int old = fd_.exchange(-1, std::memory_order_acq_rel);
+    if (old >= 0) {
+        ::close(old);
+    }
+    if (wake_fd_ >= 0) {
+        std::uint64_t one = 1;
+        ::write(wake_fd_, &one, sizeof(one));
+    }
+}
+
 Server::Server(int fd, std::string path)
     : fd_(fd)
     , path_(std::move(path))
@@ -159,11 +283,18 @@ Server::Server(int fd, std::string path)
 
 Server::~Server()
 {
-    if (fd_ >= 0) {
-        ::close(fd_);
-    }
+    close();
     if (!path_.empty()) {
         ::unlink(path_.c_str());
+    }
+}
+
+void Server::close()
+{
+    int old = fd_;
+    fd_ = -1;
+    if (old >= 0) {
+        ::close(old);
     }
 }
 
@@ -222,6 +353,28 @@ Result<std::shared_ptr<Channel>> connect(const std::string& path)
 std::shared_ptr<Dispatcher> make_dispatcher()
 {
     return std::make_shared<SimpleDispatcher>();
+}
+
+Result<std::pair<std::shared_ptr<Channel>, std::shared_ptr<Channel>>> socket_pair()
+{
+    int fds[2];
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) < 0) {
+        return unexpected_result<std::pair<std::shared_ptr<Channel>, std::shared_ptr<Channel>>>(
+            make_errno_error("socketpair", errno));
+    }
+
+    auto first = wrap_fd(fds[0]);
+    if (!first) {
+        ::close(fds[1]);
+        return std::unexpected(first.error());
+    }
+
+    auto second = wrap_fd(fds[1]);
+    if (!second) {
+        return std::unexpected(second.error());
+    }
+
+    return std::make_pair(*first, *second);
 }
 
 }  // namespace hasten::runtime::uds
