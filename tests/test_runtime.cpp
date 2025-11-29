@@ -1,11 +1,13 @@
 #include "gtest/gtest.h"
 #include "hasten/runtime/context.hpp"
+#include "hasten/runtime/executor.hpp"
 #include "hasten/runtime/frame.hpp"
 #include "hasten/runtime/uds.hpp"
 
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <thread>
 #include <vector>
@@ -76,6 +78,10 @@ TEST(RuntimeContextTest, ProcessesSettingsHandshake)
     hasten::runtime::Context server{cfg};
     hasten::runtime::Context client{cfg};
 
+    auto exec = std::make_shared<hasten::runtime::InlineExecutor>();
+    server.set_executor(exec);
+    client.set_executor(exec);
+
     auto channels = hasten::runtime::uds::socket_pair();
     ASSERT_TRUE(channels) << channels.error().message;
     auto server_attach = server.attach_channel(channels->first, true);
@@ -100,5 +106,67 @@ TEST(RuntimeContextTest, ProcessesSettingsHandshake)
     server.join();
 
     std::string output = testing::internal::GetCapturedStderr();
+    EXPECT_NE(output.find("Channel closed"), std::string::npos);
+}
+
+TEST(RuntimeContextTest, DataFramesAreDispatchedViaExecutor)
+{
+    testing::internal::CaptureStderr();
+
+    struct RecordingExecutor : hasten::runtime::Executor {
+        void schedule(std::function<void()> fn) override
+        {
+            scheduled.fetch_add(1, std::memory_order_relaxed);
+            fn();
+        }
+        std::atomic<int> scheduled{0};
+    };
+
+    hasten::runtime::ContextConfig cfg;
+    cfg.managed_reactor = false;
+
+    hasten::runtime::Context server{cfg};
+    hasten::runtime::Context client{cfg};
+
+    auto recording = std::make_shared<RecordingExecutor>();
+    server.set_executor(recording);
+
+    auto channels = hasten::runtime::uds::socket_pair();
+    ASSERT_TRUE(channels) << channels.error().message;
+    auto server_attach = server.attach_channel(channels->first, true);
+    ASSERT_TRUE(server_attach) << server_attach.error().message;
+    auto client_channel = channels->second;
+    ASSERT_TRUE(client.attach_channel(client_channel, false));
+
+    for (int i = 0; i < 10; ++i) {
+        server.poll();
+        client.poll();
+        std::this_thread::sleep_for(5ms);
+    }
+
+    hasten::runtime::Frame frame;
+    frame.header.type = hasten::runtime::FrameType::Data;
+    frame.header.stream_id = 42;
+    frame.payload = {0x01, 0x02};
+    ASSERT_TRUE(client_channel->send(frame));
+
+    bool dispatched = false;
+    for (int i = 0; i < 50; ++i) {
+        if (server.poll() > 0 && recording->scheduled.load(std::memory_order_relaxed) > 0) {
+            dispatched = true;
+            break;
+        }
+        std::this_thread::sleep_for(5ms);
+    }
+
+    EXPECT_TRUE(dispatched);
+
+    client.stop();
+    server.stop();
+    client.join();
+    server.join();
+
+    std::string output = testing::internal::GetCapturedStderr();
+    EXPECT_NE(output.find("received DATA frame stream=42 len=2 (no handler bound)"), std::string::npos);
     EXPECT_NE(output.find("Channel closed"), std::string::npos);
 }

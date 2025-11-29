@@ -9,6 +9,7 @@ add_executable(test_hasten
     test_semantic.cpp
     test_runtime.cpp
     test_runtime_serialization.cpp
+    test_executor.cpp
 )
 
 find_package(Boost REQUIRED)

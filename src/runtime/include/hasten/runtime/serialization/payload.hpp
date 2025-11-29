@@ -15,14 +15,14 @@ class PayloadSink
 {
 public:
     virtual ~PayloadSink() = default;
-    virtual result<void> append(std::span<const std::uint8_t> data) = 0;
+    virtual Result<void> append(std::span<const std::uint8_t> data) = 0;
 };
 
 class PayloadSource
 {
 public:
     virtual ~PayloadSource() = default;
-    virtual result<std::span<const std::uint8_t>> read(std::size_t size) = 0;
+    virtual Result<std::span<const std::uint8_t>> read(std::size_t size) = 0;
     virtual bool empty() const = 0;
 };
 
@@ -34,7 +34,7 @@ public:
     {
     }
 
-    result<void> append(std::span<const std::uint8_t> data) override
+    Result<void> append(std::span<const std::uint8_t> data) override
     {
         buffer_.insert(buffer_.end(), data.begin(), data.end());
         return {};
@@ -52,7 +52,7 @@ public:
     {
     }
 
-    result<std::span<const std::uint8_t>> read(std::size_t size) override
+    Result<std::span<const std::uint8_t>> read(std::size_t size) override
     {
         if (offset_ + size > data_.size()) {
             return unexpected_result<std::span<const std::uint8_t>>(ErrorCode::TransportError, "payload underrun");

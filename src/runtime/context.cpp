@@ -35,12 +35,14 @@ public:
     Session(std::uint64_t id,
             std::shared_ptr<Channel> channel,
             std::shared_ptr<Dispatcher> dispatcher,
+            std::shared_ptr<Executor> exec,
             Kind kind,
             FrameCallback frame_cb,
             ErrorCallback error_cb)
         : id_(id)
         , channel_(std::move(channel))
         , dispatcher_(std::move(dispatcher))
+        , executor_(std::move(exec))
         , kind_(kind)
         , frame_callback_(std::move(frame_cb))
         , error_callback_(std::move(error_cb))
@@ -118,6 +120,7 @@ private:
     std::uint64_t id_ = 0;
     std::shared_ptr<Channel> channel_;
     std::shared_ptr<Dispatcher> dispatcher_;
+    std::shared_ptr<Executor> executor_;
     Kind kind_ = Kind::Client;
     FrameCallback frame_callback_;
     ErrorCallback error_callback_;
@@ -153,6 +156,7 @@ public:
     explicit Impl(ContextConfig config)
         : config_(config)
         , dispatcher_(uds::make_dispatcher())
+        , executor_(make_default_executor())
     {
         if (!config_.worker_threads) {
             config_.worker_threads = std::max<std::size_t>(1, std::thread::hardware_concurrency());
@@ -196,6 +200,14 @@ public:
     Result<void> attach_channel(std::shared_ptr<Channel> channel, bool server_side)
     {
         return add_session(std::move(channel), server_side ? Session::Kind::Server : Session::Kind::Client);
+    }
+
+    void set_executor(std::shared_ptr<Executor> exec)
+    {
+        executor_ = std::move(exec);
+        if (!executor_) {
+            executor_ = make_default_executor();
+        }
     }
 
     void start()
@@ -279,6 +291,7 @@ private:
             next_session_id_++,
             std::move(channel),
             dispatcher_,
+            executor_,
             kind,
             [this](std::shared_ptr<Session> session, Frame&& frame) { enqueue_frame(std::move(session), std::move(frame)); },
             [this](std::shared_ptr<Session> session, Error error) { handle_session_error(std::move(session), std::move(error)); });
@@ -453,14 +466,24 @@ private:
 
     void handle_data(const std::shared_ptr<Session>&, const Frame& frame)
     {
-        std::fprintf(stderr,
-                     "hasten runtime: received DATA frame stream=%" PRIu64 " len=%u (no handler bound)\n",
-                     static_cast<std::uint64_t>(frame.header.stream_id),
-                     frame.header.length);
+        if (executor_) {
+            executor_->schedule([stream = frame.header.stream_id, len = frame.header.length]() {
+                std::fprintf(stderr,
+                             "hasten runtime: received DATA frame stream=%" PRIu64 " len=%u (no handler bound)\n",
+                             static_cast<std::uint64_t>(stream),
+                             len);
+            });
+        } else {
+            std::fprintf(stderr,
+                         "hasten runtime: received DATA frame stream=%" PRIu64 " len=%u (no handler bound)\n",
+                         static_cast<std::uint64_t>(frame.header.stream_id),
+                         frame.header.length);
+        }
     }
 
     ContextConfig config_;
     std::shared_ptr<Dispatcher> dispatcher_;
+    std::shared_ptr<Executor> executor_;
     std::atomic<bool> stop_requested_{false};
     std::atomic<bool> reactor_running_{false};
     std::thread reactor_thread_;
@@ -505,6 +528,11 @@ Result<void> Context::connect(const std::string& path)
 Result<void> Context::attach_channel(std::shared_ptr<Channel> channel, bool server_side)
 {
     return impl_->attach_channel(std::move(channel), server_side);
+}
+
+void Context::set_executor(std::shared_ptr<Executor> exec)
+{
+    impl_->set_executor(std::move(exec));
 }
 
 void Context::start()

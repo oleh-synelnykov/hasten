@@ -10,7 +10,7 @@ namespace
 
 constexpr std::size_t kMaxVarintBytes = 10;
 
-result<void> append_bytes(PayloadSink& sink, const std::uint8_t* data, std::size_t size)
+Result<void> append_bytes(PayloadSink& sink, const std::uint8_t* data, std::size_t size)
 {
     return sink.append(std::span<const std::uint8_t>(data, size));
 }
@@ -33,20 +33,20 @@ Writer::Writer(PayloadSink& sink)
 {
 }
 
-result<void> Writer::write_varint(std::uint64_t value)
+Result<void> Writer::write_varint(std::uint64_t value)
 {
     std::uint8_t buffer[kMaxVarintBytes];
     auto size = encode_varint_u64(value, buffer);
     return append_bytes(*sink_, buffer, size);
 }
 
-result<void> Writer::write_zigzag(std::int64_t value)
+Result<void> Writer::write_zigzag(std::int64_t value)
 {
     std::uint64_t zigzag = (static_cast<std::uint64_t>(value) << 1) ^ static_cast<std::uint64_t>(value >> 63);
     return write_varint(zigzag);
 }
 
-result<void> Writer::write_tag(std::uint32_t tag, WireType type)
+Result<void> Writer::write_tag(std::uint32_t tag, WireType type)
 {
     if (auto res = write_varint(tag); !res) {
         return res;
@@ -55,7 +55,7 @@ result<void> Writer::write_tag(std::uint32_t tag, WireType type)
     return sink_->append(std::span<const std::uint8_t>(&byte, 1));
 }
 
-result<void> Writer::write_field_varint(std::uint32_t tag, std::uint64_t value)
+Result<void> Writer::write_field_varint(std::uint32_t tag, std::uint64_t value)
 {
     if (auto res = write_tag(tag, WireType::Varint); !res) {
         return res;
@@ -63,7 +63,7 @@ result<void> Writer::write_field_varint(std::uint32_t tag, std::uint64_t value)
     return write_varint(value);
 }
 
-result<void> Writer::write_field_svarint(std::uint32_t tag, std::int64_t value)
+Result<void> Writer::write_field_svarint(std::uint32_t tag, std::int64_t value)
 {
     if (auto res = write_tag(tag, WireType::ZigZagVarint); !res) {
         return res;
@@ -71,7 +71,7 @@ result<void> Writer::write_field_svarint(std::uint32_t tag, std::int64_t value)
     return write_zigzag(value);
 }
 
-result<void> Writer::write_field_fixed32(std::uint32_t tag, std::uint32_t value)
+Result<void> Writer::write_field_fixed32(std::uint32_t tag, std::uint32_t value)
 {
     if (auto res = write_tag(tag, WireType::Fixed32); !res) {
         return res;
@@ -84,7 +84,7 @@ result<void> Writer::write_field_fixed32(std::uint32_t tag, std::uint32_t value)
     return sink_->append(buf);
 }
 
-result<void> Writer::write_field_fixed64(std::uint32_t tag, std::uint64_t value)
+Result<void> Writer::write_field_fixed64(std::uint32_t tag, std::uint64_t value)
 {
     if (auto res = write_tag(tag, WireType::Fixed64); !res) {
         return res;
@@ -96,7 +96,7 @@ result<void> Writer::write_field_fixed64(std::uint32_t tag, std::uint64_t value)
     return sink_->append(buf);
 }
 
-result<void> Writer::write_field_bytes(std::uint32_t tag, std::span<const std::uint8_t> bytes)
+Result<void> Writer::write_field_bytes(std::uint32_t tag, std::span<const std::uint8_t> bytes)
 {
     if (auto res = write_tag(tag, WireType::LengthDelimited); !res) {
         return res;
@@ -107,7 +107,7 @@ result<void> Writer::write_field_bytes(std::uint32_t tag, std::span<const std::u
     return sink_->append(bytes);
 }
 
-result<void> Writer::write_field_string(std::uint32_t tag, std::string_view value)
+Result<void> Writer::write_field_string(std::uint32_t tag, std::string_view value)
 {
     return write_field_bytes(tag, std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(value.data()), value.size()));
 }
@@ -120,7 +120,7 @@ Reader::Reader(PayloadSource& source)
 namespace
 {
 
-result<std::uint64_t> read_varint(PayloadSource& source)
+Result<std::uint64_t> read_varint(PayloadSource& source)
 {
     std::uint64_t result = 0;
     int shift = 0;
@@ -144,7 +144,7 @@ result<std::uint64_t> read_varint(PayloadSource& source)
 
 }  // namespace
 
-result<bool> Reader::next(FieldView& out)
+Result<bool> Reader::next(FieldView& out)
 {
     if (source_->empty()) {
         return false;
@@ -233,7 +233,7 @@ result<bool> Reader::next(FieldView& out)
     return true;
 }
 
-result<std::uint64_t> decode_varint(std::span<const std::uint8_t> data)
+Result<std::uint64_t> decode_varint(std::span<const std::uint8_t> data)
 {
     std::uint64_t result = 0;
     int shift = 0;
@@ -248,7 +248,7 @@ result<std::uint64_t> decode_varint(std::span<const std::uint8_t> data)
     return unexpected_result<std::uint64_t>(ErrorCode::TransportError, "unterminated varint payload");
 }
 
-result<std::int64_t> decode_zigzag(std::span<const std::uint8_t> data)
+Result<std::int64_t> decode_zigzag(std::span<const std::uint8_t> data)
 {
     auto varint = decode_varint(data);
     if (!varint) {
@@ -259,7 +259,7 @@ result<std::int64_t> decode_zigzag(std::span<const std::uint8_t> data)
     return decoded;
 }
 
-result<std::string> decode_string(std::span<const std::uint8_t> data)
+Result<std::string> decode_string(std::span<const std::uint8_t> data)
 {
     return std::string(reinterpret_cast<const char*>(data.data()), data.size());
 }
@@ -309,7 +309,7 @@ const FieldDescriptor* find_field(const MessageDescriptor& descriptor, std::uint
     return nullptr;
 }
 
-result<void> encode_value(const FieldValue& value, Writer& writer)
+Result<void> encode_value(const FieldValue& value, Writer& writer)
 {
     switch (value.wire_type) {
         case WireType::Varint:
@@ -348,7 +348,7 @@ result<void> encode_value(const FieldValue& value, Writer& writer)
 
 }  // namespace
 
-result<void> encode_message(const MessageDescriptor& descriptor,
+Result<void> encode_message(const MessageDescriptor& descriptor,
                             std::span<const FieldValue> values,
                             Writer& writer)
 {
@@ -375,7 +375,7 @@ result<void> encode_message(const MessageDescriptor& descriptor,
     return {};
 }
 
-result<std::vector<FieldValue>> decode_message(const MessageDescriptor& descriptor, Reader& reader)
+Result<std::vector<FieldValue>> decode_message(const MessageDescriptor& descriptor, Reader& reader)
 {
     std::vector<FieldView> views;
     FieldView view;
@@ -473,7 +473,7 @@ result<std::vector<FieldValue>> decode_message(const MessageDescriptor& descript
     return values;
 }
 
-result<void> validate_fields(const MessageDescriptor& descriptor, std::span<const FieldView> fields)
+Result<void> validate_fields(const MessageDescriptor& descriptor, std::span<const FieldView> fields)
 {
     std::unordered_map<std::uint32_t, bool> seen;
     for (const auto& field : fields) {

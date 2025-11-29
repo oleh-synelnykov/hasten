@@ -33,17 +33,17 @@ class Writer
 public:
     explicit Writer(PayloadSink& sink);
 
-    result<void> write_varint(std::uint64_t value);
-    result<void> write_zigzag(std::int64_t value);
-    result<void> write_field_varint(std::uint32_t tag, std::uint64_t value);
-    result<void> write_field_svarint(std::uint32_t tag, std::int64_t value);
-    result<void> write_field_fixed32(std::uint32_t tag, std::uint32_t value);
-    result<void> write_field_fixed64(std::uint32_t tag, std::uint64_t value);
-    result<void> write_field_bytes(std::uint32_t tag, std::span<const std::uint8_t> bytes);
-    result<void> write_field_string(std::uint32_t tag, std::string_view value);
+    Result<void> write_varint(std::uint64_t value);
+    Result<void> write_zigzag(std::int64_t value);
+    Result<void> write_field_varint(std::uint32_t tag, std::uint64_t value);
+    Result<void> write_field_svarint(std::uint32_t tag, std::int64_t value);
+    Result<void> write_field_fixed32(std::uint32_t tag, std::uint32_t value);
+    Result<void> write_field_fixed64(std::uint32_t tag, std::uint64_t value);
+    Result<void> write_field_bytes(std::uint32_t tag, std::span<const std::uint8_t> bytes);
+    Result<void> write_field_string(std::uint32_t tag, std::string_view value);
 
 private:
-    result<void> write_tag(std::uint32_t tag, WireType type);
+    Result<void> write_tag(std::uint32_t tag, WireType type);
     PayloadSink* sink_;
 };
 
@@ -53,15 +53,15 @@ public:
     explicit Reader(PayloadSource& source);
 
     // Returns false on EOF.
-    result<bool> next(FieldView& out);
+    Result<bool> next(FieldView& out);
 
 private:
     PayloadSource* source_;
 };
 
-result<std::uint64_t> decode_varint(std::span<const std::uint8_t> data);
-result<std::int64_t> decode_zigzag(std::span<const std::uint8_t> data);
-result<std::string> decode_string(std::span<const std::uint8_t> data);
+Result<std::uint64_t> decode_varint(std::span<const std::uint8_t> data);
+Result<std::int64_t> decode_zigzag(std::span<const std::uint8_t> data);
+Result<std::string> decode_string(std::span<const std::uint8_t> data);
 
 enum class ValueKind { Unsigned, Signed, String, Bytes };
 
@@ -95,12 +95,12 @@ struct MessageDescriptor {
     std::span<const FieldDescriptor> fields;
 };
 
-result<void> encode_message(const MessageDescriptor& descriptor,
+Result<void> encode_message(const MessageDescriptor& descriptor,
                             std::span<const FieldValue> values,
                             Writer& writer);
 
-result<std::vector<FieldValue>> decode_message(const MessageDescriptor& descriptor, Reader& reader);
+Result<std::vector<FieldValue>> decode_message(const MessageDescriptor& descriptor, Reader& reader);
 
-result<void> validate_fields(const MessageDescriptor& descriptor, std::span<const FieldView> fields);
+Result<void> validate_fields(const MessageDescriptor& descriptor, std::span<const FieldView> fields);
 
 }  // namespace hasten::runtime::hb1

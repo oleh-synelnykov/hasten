@@ -1,9 +1,10 @@
 #pragma once
 
 #include "hasten/runtime/result.hpp"
+#include "hasten/runtime/executor.hpp"
 
-#include <cstddef>
 #include <memory>
+#include <cstddef>
 #include <string>
 
 namespace hasten::runtime
@@ -28,6 +29,7 @@ public:
     Result<void> listen(const std::string& path);
     Result<void> connect(const std::string& path);
     Result<void> attach_channel(std::shared_ptr<Channel> channel, bool server_side);
+    void set_executor(std::shared_ptr<Executor> exec);
 
     void start();
     void stop();
