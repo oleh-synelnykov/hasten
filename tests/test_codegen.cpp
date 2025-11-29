@@ -265,6 +265,45 @@ TEST_F(Codegen, GeneratesModuleWithEnumsAndMethodVariants)
     }
 
     {
+        // bind_Multi
+        ASSERT_FIND_BEGIN(header_contents, "void")
+        ASSERT_FIND(header_contents, "bind_Multi(")
+        ASSERT_FIND(header_contents, "hasten::runtime::Dispatcher& dispatcher")
+        ASSERT_FIND(header_contents, ",");
+        ASSERT_FIND(header_contents, "std::shared_ptr<Multi> implementation")
+        ASSERT_FIND(header_contents, ",");
+        ASSERT_FIND(header_contents, "std::shared_ptr<hasten::runtime::Executor> executor = nullptr");
+        ASSERT_FIND(header_contents, ");")
+    }
+
+    {
+        // make_Multi_client
+        ASSERT_FIND_BEGIN(header_contents, "std::shared_ptr<MultiClient>")
+        ASSERT_FIND(header_contents, "make_Multi_client(");
+        ASSERT_FIND(header_contents, "std::shared_ptr<hasten::runtime::Channel> channel");
+        ASSERT_FIND(header_contents, ",");
+        ASSERT_FIND(header_contents, "std::shared_ptr<hasten::runtime::Dispatcher> dispatcher");
+        ASSERT_FIND(header_contents, ");");
+    }
+
+    {
+        // make_Multi_client_uds
+        ASSERT_FIND_BEGIN(header_contents, "inline");
+        ASSERT_FIND(header_contents, "hasten::runtime::Result<std::shared_ptr<MultiClient>>");
+        ASSERT_FIND(header_contents, "make_Multi_client_uds(");
+        ASSERT_FIND(header_contents, "const std::string& path");
+        ASSERT_FIND(header_contents, ")");
+        ASSERT_FIND(header_contents, "{");
+        ASSERT_FIND(header_contents, "auto channel_result = hasten::runtime::uds::connect(path);");
+        ASSERT_FIND(header_contents, "if (!channel_result) {");
+        ASSERT_FIND(header_contents, "return std::unexpected(channel_result.error());");
+        ASSERT_FIND(header_contents, "}");
+        ASSERT_FIND(header_contents, "auto dispatcher = hasten::runtime::uds::make_dispatcher();");
+        ASSERT_FIND(header_contents, "return make_Multi_client(std::move(channel_result.value()), dispatcher);");
+        ASSERT_FIND(header_contents, "}");
+    }
+
+    {
         ASSERT_FIND_BEGIN(header_contents, "}")
         ASSERT_FIND(header_contents, "//")
         ASSERT_FIND(header_contents, "namespace features::testing")

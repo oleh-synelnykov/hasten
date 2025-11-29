@@ -247,15 +247,19 @@ void generate_header_includes(std::ostream& os)
 {
     os << "#include \"hasten/runtime/channel.hpp\"\n";
     os << "#include \"hasten/runtime/executor.hpp\"\n";
-    os << "#include \"hasten/runtime/result.hpp\"\n\n";
+    os << "#include \"hasten/runtime/result.hpp\"\n";
+    os << "#include \"hasten/runtime/uds.hpp\"\n";
+    os << "\n";
     os << "#include <cstdint>\n";
+    os << "#include <expected>\n";
     os << "#include <functional>\n";
     os << "#include <future>\n";
     os << "#include <map>\n";
     os << "#include <memory>\n";
     os << "#include <optional>\n";
     os << "#include <string>\n";
-    os << "#include <vector>\n\n";
+    os << "#include <vector>\n";
+    os << "\n";
 }
 
 void generate_enum(std::ostream& os, int indent_level, const ir::Enum& enum_ir)
@@ -360,12 +364,34 @@ void generate_interface(std::ostream& os, int indent_level, const ir::Interface&
 
     os << class_indent << "void bind_" << iface.name << "(hasten::runtime::Dispatcher& dispatcher,\n"
        << class_indent << "             std::shared_ptr<" << iface.name << "> implementation,\n"
-       << class_indent << "             std::shared_ptr<hasten::runtime::Executor> executor = nullptr);\n";
+       << class_indent << "             std::shared_ptr<hasten::runtime::Executor> executor = nullptr);\n"
+       << '\n';
     os << class_indent << "std::shared_ptr<" << client_name << "> make_" << iface.name
        << "_client(std::shared_ptr<hasten::runtime::Channel> channel,\n"
        << class_indent
        << "                                          std::shared_ptr<hasten::runtime::Dispatcher> "
-          "dispatcher);\n\n";
+          "dispatcher);\n"
+       << '\n';
+}
+
+void generate_uds_client_creation(std::ostream& os, int indent_level, const ir::Interface& iface)
+{
+    const std::string indent = indentation(indent_level);
+    const std::string level = indentation(1);
+
+    const auto client_name = iface.name + "Client";
+    os << indent << "inline\n"
+       << indent << "hasten::runtime::Result<std::shared_ptr<" << client_name << ">>\n"
+       << indent << "make_" << iface.name << "_client_uds(const std::string& path)\n"
+       << indent << "{\n"
+       << indent << level << "auto channel_result = hasten::runtime::uds::connect(path);\n"
+       << indent << level << "if (!channel_result) {\n"
+       << indent << level << level << "return std::unexpected(channel_result.error());\n"
+       << indent << level << "}\n"
+       << indent << level << "auto dispatcher = hasten::runtime::uds::make_dispatcher();\n"
+       << indent << level << "return make_" << iface.name
+       << "_client(std::move(channel_result.value()), dispatcher);\n"
+       << indent << "}\n\n";
 }
 
 std::string generate_header(const ir::Module& module, const TupleInfo& tuple_info,
@@ -396,6 +422,10 @@ std::string generate_header(const ir::Module& module, const TupleInfo& tuple_inf
 
     for (const auto& iface : module.interfaces) {
         generate_interface(out, indent_level, iface, mapper, tuple_info.lookup);
+    }
+
+    for (const auto& iface : module.interfaces) {
+        generate_uds_client_creation(out, indent_level, iface);
     }
 
     close_namespaces(out, module);
