@@ -113,6 +113,26 @@ std::vector<std::uint8_t> build_response_payload(rpc::Status status,
     return payload;
 }
 
+Result<rpc::Response> parse_rpc_response(const std::vector<std::uint8_t>& payload)
+{
+    std::size_t offset = 0;
+    auto encoding_id = read_varint(payload, offset);
+    if (!encoding_id) {
+        return std::unexpected(encoding_id.error());
+    }
+    Encoding encoding = Encoding::Hb1;
+    if (*encoding_id != static_cast<std::uint64_t>(Encoding::Hb1)) {
+        return unexpected_result<rpc::Response>(ErrorCode::TransportError, "unsupported encoding");
+    }
+    if (offset >= payload.size()) {
+        return unexpected_result<rpc::Response>(ErrorCode::TransportError, "missing response status");
+    }
+    rpc::Response response;
+    response.status = static_cast<rpc::Status>(payload[offset++]);
+    response.body.assign(payload.begin() + static_cast<std::ptrdiff_t>(offset), payload.end());
+    return response;
+}
+
 class Session : public std::enable_shared_from_this<Session>
 {
 public:
@@ -503,7 +523,11 @@ private:
                 handle_error(session, frame);
                 break;
             case FrameType::Data:
-                handle_data(session, std::move(frame));
+                if (session->kind() == Session::Kind::Server) {
+                    handle_server_data(session, std::move(frame));
+                } else {
+                    handle_client_data(session, std::move(frame));
+                }
                 break;
         }
     }
@@ -552,16 +576,8 @@ private:
                      frame.payload.size());
     }
 
-    void handle_data(const std::shared_ptr<Session>& session, Frame frame)
+    void handle_server_data(const std::shared_ptr<Session>& session, Frame frame)
     {
-        if (session->kind() != Session::Kind::Server) {
-            std::fprintf(stderr,
-                         "hasten runtime: received client DATA frame stream=%" PRIu64 " len=%u (ignored)\n",
-                         static_cast<std::uint64_t>(frame.header.stream_id),
-                         frame.header.length);
-            return;
-        }
-
         auto parsed = parse_rpc_request(frame.payload);
         if (!parsed) {
             send_rpc_response(session, frame.header.stream_id, rpc::Response{rpc::Status::InvalidRequest, {}});
@@ -585,6 +601,43 @@ private:
         };
 
         (*handler)(std::move(request_ptr), std::move(responder));
+    }
+
+    void handle_client_data(const std::shared_ptr<Session>&, Frame frame)
+    {
+        auto response = parse_rpc_response(frame.payload);
+        if (!response) {
+            if (dispatcher_) {
+                dispatcher_->close_stream(frame.header.stream_id);
+            }
+            std::fprintf(stderr,
+                         "hasten runtime: failed to decode response for stream %" PRIu64 ": %s\n",
+                         static_cast<std::uint64_t>(frame.header.stream_id),
+                         response.error().message.c_str());
+            return;
+        }
+
+        if (!dispatcher_) {
+            return;
+        }
+
+        auto handler = dispatcher_->take_response_handler(frame.header.stream_id);
+        if (!handler) {
+            std::fprintf(stderr,
+                         "hasten runtime: no response handler for stream %" PRIu64 "\n",
+                         static_cast<std::uint64_t>(frame.header.stream_id));
+            return;
+        }
+
+        auto cb = std::move(*handler);
+        auto resp = std::move(*response);
+        if (executor_) {
+            executor_->schedule([cb = std::move(cb), resp = std::move(resp)]() mutable {
+                cb(std::move(resp));
+            });
+        } else {
+            cb(std::move(resp));
+        }
     }
 
     void send_rpc_response(const std::shared_ptr<Session>& session,

@@ -1282,6 +1282,11 @@ std::string generate_client_source(const ir::Module& module, const ir::Interface
         const auto result_type = method_result_type(method, mapper, tuple_names);
         const auto callback_type =
             fmt::format("std::function<void(hasten::runtime::Result<{}>)>", result_type);
+        const auto meta_prefix = "detail::" + iface.name + std::string("Metadata::") + method.name + "Metadata";
+        const auto helper_prefix = method_helper_prefix(iface.name, method.name);
+        const auto encode_request_helper = "detail::encode_" + helper_prefix + "_request";
+        const auto decode_response_helper = "detail::decode_" + helper_prefix + "_response";
+        const bool has_response = !method.result_fields.empty() || method.result_type.has_value();
 
         out << indent << "void " << client_name << "::" << method.name << "(";
         write_joined(out, method.parameters, parameter_decl, ", ");
@@ -1290,14 +1295,77 @@ std::string generate_client_source(const ir::Module& module, const ir::Interface
         }
         out << callback_type << " callback) const\n";
         out << indent << "{\n";
-        out << body_indent << "(void)channel_;\n";
-        out << body_indent << "(void)dispatcher_;\n";
+        out << body_indent << "auto callback_fn = callback;\n";
+        out << body_indent << "if (!channel_ || !dispatcher_) {\n";
+        out << nested_indent << "if (callback_fn) {\n";
+        out << nested_indent << "    callback_fn(hasten::runtime::unexpected_result<" << result_type
+            << ">(hasten::runtime::ErrorCode::TransportError, \"channel not ready\"));\n";
+        out << nested_indent << "}\n";
+        out << nested_indent << "return;\n";
+        out << body_indent << "}\n";
+        out << body_indent << "auto stream_id = dispatcher_->open_stream();\n";
+        out << body_indent << "std::vector<std::uint8_t> payload;\n";
+        out << body_indent << "payload.reserve(64);\n";
+        out << body_indent << "detail::append_varint(payload, detail::" << iface.name
+            << "Metadata::module_id);\n";
+        out << body_indent << "detail::append_varint(payload, detail::" << iface.name
+            << "Metadata::interface_id);\n";
+        out << body_indent << "detail::append_varint(payload, " << meta_prefix << "::method_id);\n";
+        out << body_indent << "detail::append_varint(payload, static_cast<std::uint64_t>(hasten::runtime::Encoding::Hb1));\n";
+        out << body_indent << "detail::append_varint(payload, stream_id);\n";
+        out << body_indent << "std::vector<std::uint8_t> message_body;\n";
+        out << body_indent << "hasten::runtime::VectorSink sink{message_body};\n";
+        out << body_indent << "hasten::runtime::hb1::Writer writer{sink};\n";
+        out << body_indent << "if (auto res = " << encode_request_helper << "(writer";
         for (const auto& param : method.parameters) {
-            out << body_indent << "(void)" << param.name << ";\n";
+            out << ", " << param.name;
         }
-        out << body_indent << "if (callback) {\n";
-        out << nested_indent << "callback(hasten::runtime::unimplemented_result<" << result_type
-            << ">(\"Client stub not implemented\"));\n";
+        out << "); !res) {\n";
+        out << nested_indent << "dispatcher_->close_stream(stream_id);\n";
+        out << nested_indent << "if (callback_fn) {\n";
+        out << nested_indent << "    callback_fn(std::unexpected(res.error()));\n";
+        out << nested_indent << "}\n";
+        out << nested_indent << "return;\n";
+        out << body_indent << "}\n";
+        out << body_indent << "payload.insert(payload.end(), message_body.begin(), message_body.end());\n";
+        out << body_indent << "dispatcher_->set_response_handler(stream_id,\n";
+        out << body_indent
+            << "    [dispatcher = dispatcher_, callback_fn, stream_id](hasten::runtime::rpc::Response response) mutable {\n";
+        out << body_indent << "        if (dispatcher) {\n";
+        out << body_indent << "            dispatcher->close_stream(stream_id);\n";
+        out << body_indent << "        }\n";
+        out << body_indent << "        if (!callback_fn) {\n";
+        out << body_indent << "            return;\n";
+        out << body_indent << "        }\n";
+        out << body_indent << "        if (response.status != hasten::runtime::rpc::Status::Ok) {\n";
+        out << body_indent << "            callback_fn(hasten::runtime::unexpected_result<" << result_type
+            << ">(hasten::runtime::ErrorCode::InternalError, \"rpc error\"));\n";
+        out << body_indent << "            return;\n";
+        out << body_indent << "        }\n";
+        if (has_response) {
+            out << body_indent << "        auto decoded = " << decode_response_helper << "(response.body);\n";
+            out << body_indent << "        if (!decoded) {\n";
+            out << body_indent << "            callback_fn(std::unexpected(decoded.error()));\n";
+            out << body_indent << "            return;\n";
+            out << body_indent << "        }\n";
+            out << body_indent << "        callback_fn(hasten::runtime::Result<" << result_type
+                << ">{std::move(*decoded)});\n";
+        } else {
+            out << body_indent << "        callback_fn(hasten::runtime::Result<void>{});\n";
+        }
+        out << body_indent << "    });\n";
+        out << body_indent << "hasten::runtime::Frame frame;\n";
+        out << body_indent << "frame.header.type = hasten::runtime::FrameType::Data;\n";
+        out << body_indent << "frame.header.flags = hasten::runtime::FrameFlagEndStream;\n";
+        out << body_indent << "frame.header.stream_id = stream_id;\n";
+        out << body_indent << "frame.payload = std::move(payload);\n";
+        out << body_indent << "if (auto res = channel_->send(std::move(frame)); !res) {\n";
+        out << nested_indent << "dispatcher_->take_response_handler(stream_id);\n";
+        out << nested_indent << "dispatcher_->close_stream(stream_id);\n";
+        out << nested_indent << "if (callback_fn) {\n";
+        out << nested_indent << "    callback_fn(std::unexpected(res.error()));\n";
+        out << nested_indent << "}\n";
+        out << nested_indent << "return;\n";
         out << body_indent << "}\n";
         out << indent << "}\n\n";
 

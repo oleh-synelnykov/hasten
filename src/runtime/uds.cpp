@@ -7,9 +7,11 @@
 #include <cerrno>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <poll.h>
 #include <string>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -166,10 +168,34 @@ public:
         return next_id_++;
     }
 
-    void close_stream(std::uint64_t) override {}
+    void close_stream(std::uint64_t stream_id) override
+    {
+        std::lock_guard lock(mutex_);
+        handlers_.erase(stream_id);
+    }
+
+    void set_response_handler(std::uint64_t stream_id, rpc::Responder handler) override
+    {
+        std::lock_guard lock(mutex_);
+        handlers_[stream_id] = std::move(handler);
+    }
+
+    std::optional<rpc::Responder> take_response_handler(std::uint64_t stream_id) override
+    {
+        std::lock_guard lock(mutex_);
+        auto it = handlers_.find(stream_id);
+        if (it == handlers_.end()) {
+            return std::nullopt;
+        }
+        auto handler = std::move(it->second);
+        handlers_.erase(it);
+        return handler;
+    }
 
 private:
     std::atomic<std::uint64_t> next_id_{1};
+    std::mutex mutex_;
+    std::unordered_map<std::uint64_t, rpc::Responder> handlers_;
 };
 
 int create_socket()
