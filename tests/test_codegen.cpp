@@ -268,8 +268,6 @@ TEST_F(Codegen, GeneratesModuleWithEnumsAndMethodVariants)
         // bind_Multi
         ASSERT_FIND_BEGIN(header_contents, "void")
         ASSERT_FIND(header_contents, "bind_Multi(")
-        ASSERT_FIND(header_contents, "hasten::runtime::Dispatcher& dispatcher")
-        ASSERT_FIND(header_contents, ",");
         ASSERT_FIND(header_contents, "std::shared_ptr<Multi> implementation")
         ASSERT_FIND(header_contents, ",");
         ASSERT_FIND(header_contents, "std::shared_ptr<hasten::runtime::Executor> executor = nullptr");

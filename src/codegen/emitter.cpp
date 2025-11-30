@@ -47,6 +47,15 @@ void write_joined(std::ostream& os, const Range& range, Transformer&& transforme
 using TupleStructEntry = std::pair<std::string, const ir::Method*>;
 using TupleNameLookup = std::unordered_map<const ir::Method*, std::string>;
 
+struct Hb1FieldInfo {
+    hasten::runtime::hb1::WireType wire_type = hasten::runtime::hb1::WireType::Varint;
+    hasten::runtime::hb1::ValueKind value_kind = hasten::runtime::hb1::ValueKind::Unsigned;
+    bool optional = false;
+};
+
+Hb1FieldInfo describe_type(const ast::Type& type);
+std::string wire_type_literal(hasten::runtime::hb1::WireType type);
+
 struct TupleInfo {
     std::vector<TupleStructEntry> structs;
     TupleNameLookup lookup;
@@ -81,6 +90,23 @@ std::uint64_t stable_hash(std::string_view text)
 std::string hash_literal(std::string_view text)
 {
     return fmt::format("{}ULL", stable_hash(text));
+}
+
+std::string sanitize_identifier(const std::string& name)
+{
+    std::string result;
+    result.reserve(name.size());
+    for (char ch : name) {
+        if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_') {
+            result.push_back(ch == '.' ? '_' : ch);
+        } else {
+            result.push_back('_');
+        }
+    }
+    if (result.empty() || std::isdigit(static_cast<unsigned char>(result.front()))) {
+        result.insert(result.begin(), '_');
+    }
+    return result;
 }
 
 class TypeMapper : public boost::static_visitor<std::string>
@@ -148,6 +174,283 @@ public:
         return fmt::format("std::optional<{}>", boost::apply_visitor(*this, optional.inner));
     }
 };
+
+using StructLookup = std::unordered_map<std::string, const ir::Struct*>;
+
+StructLookup build_struct_lookup(const ir::Module& module)
+{
+    StructLookup lookup;
+    for (const auto& s : module.structs) {
+        lookup.emplace(s.name, &s);
+    }
+    return lookup;
+}
+
+std::string qualified_name(const ir::Module& module, const std::string& symbol)
+{
+    if (module.namespace_parts.empty()) {
+        return symbol;
+    }
+    std::string result;
+    for (std::size_t i = 0; i < module.namespace_parts.size(); ++i) {
+        if (i) {
+            result += "::";
+        }
+        result += module.namespace_parts[i];
+    }
+    result += "::" + symbol;
+    return result;
+}
+
+std::string sanitized_helper_name(std::string_view prefix, std::string_view name)
+{
+    return sanitize_identifier(std::string(prefix) + std::string(name));
+}
+
+std::string encode_struct_helper(const std::string& struct_name)
+{
+    return "encode_struct_" + sanitize_identifier(struct_name);
+}
+
+std::string decode_struct_helper(const std::string& struct_name)
+{
+    return "decode_struct_" + sanitize_identifier(struct_name);
+}
+
+std::string method_helper_prefix(const std::string& iface_name, const std::string& method_name)
+{
+    return sanitize_identifier(iface_name + "_" + method_name);
+}
+
+const ast::Type* unwrap_optional_type(const ast::Type& type, bool& is_optional)
+{
+    if (const auto* optional = boost::get<ast::Optional>(&type)) {
+        is_optional = true;
+        return &optional->inner;
+    }
+    is_optional = false;
+    return &type;
+}
+
+const ir::Struct* find_struct(const StructLookup& lookup, const ast::UserType& type)
+{
+    if (type.name.parts.empty()) {
+        return nullptr;
+    }
+    auto it = lookup.find(type.name.parts.back());
+    if (it != lookup.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+std::string qualified_type_name(const ir::Module& module, const std::string& name)
+{
+    return qualified_name(module, name);
+}
+
+void emit_encode_field_value(std::ostream& os,
+                             int indent_level,
+                             const ir::Field& field,
+                             const ast::Type& type,
+                             const std::string& value_expr,
+                             const StructLookup& struct_lookup,
+                             const ir::Module& module);
+
+void emit_decode_field_value(std::ostream& os,
+                             int indent_level,
+                             const ir::Field& field,
+                             const ast::Type& type,
+                             const std::string& target_expr,
+                             const StructLookup& struct_lookup,
+                             const ir::Module& module,
+                             const std::string& field_value_expr,
+                             const TypeMapper& mapper);
+
+void emit_encode_field_value(std::ostream& os,
+                             int indent_level,
+                             const ir::Field& field,
+                             const ast::Type& type,
+                             const std::string& value_expr,
+                             const StructLookup& struct_lookup,
+                             const ir::Module& module)
+{
+    bool is_optional = false;
+    const ast::Type* actual = unwrap_optional_type(type, is_optional);
+    const auto indent = indentation(indent_level);
+    if (is_optional) {
+        os << indent << "if (" << value_expr << ") {\n";
+        os << indent << "    auto&& inner = *" << value_expr << ";\n";
+        emit_encode_field_value(os, indent_level + 1, field, *actual, "inner", struct_lookup, module);
+        os << indent << "}\n";
+        return;
+    }
+
+    const auto info = describe_type(*actual);
+    os << indent << "{\n";
+    const auto inner_indent = indentation(indent_level + 1);
+    os << inner_indent << "hasten::runtime::hb1::FieldValue field_value;\n";
+    os << inner_indent << "field_value.id = " << field.id << ";\n";
+    os << inner_indent << "field_value.wire_type = " << wire_type_literal(info.wire_type) << ";\n";
+
+    if (const auto* primitive = boost::get<ast::Primitive>(actual)) {
+        using ast::PrimitiveKind;
+        switch (primitive->kind) {
+            case PrimitiveKind::Bool:
+                os << inner_indent
+                   << "field_value.value = hasten::runtime::hb1::Value::make_unsigned((" << value_expr
+                   << ") ? 1 : 0);\n";
+                break;
+            case PrimitiveKind::I8:
+            case PrimitiveKind::I16:
+            case PrimitiveKind::I32:
+            case PrimitiveKind::I64:
+                os << inner_indent
+                   << "field_value.value = hasten::runtime::hb1::Value::make_signed(static_cast<std::int64_t>("
+                   << value_expr << "));\n";
+                break;
+            case PrimitiveKind::U8:
+            case PrimitiveKind::U16:
+            case PrimitiveKind::U32:
+            case PrimitiveKind::U64:
+                os << inner_indent
+                   << "field_value.value = hasten::runtime::hb1::Value::make_unsigned(static_cast<std::uint64_t>("
+                   << value_expr << "));\n";
+                break;
+            case PrimitiveKind::F32: {
+                os << inner_indent << "std::uint32_t bits = 0;\n";
+                os << inner_indent << "std::memcpy(&bits, &" << value_expr << ", sizeof(bits));\n";
+                os << inner_indent
+                   << "field_value.value = hasten::runtime::hb1::Value::make_unsigned(bits);\n";
+                break;
+            }
+            case PrimitiveKind::F64: {
+                os << inner_indent << "std::uint64_t bits = 0;\n";
+                os << inner_indent << "std::memcpy(&bits, &" << value_expr << ", sizeof(bits));\n";
+                os << inner_indent
+                   << "field_value.value = hasten::runtime::hb1::Value::make_unsigned(bits);\n";
+                break;
+            }
+            case PrimitiveKind::String:
+                os << inner_indent
+                   << "field_value.value = hasten::runtime::hb1::Value::make_string(" << value_expr
+                   << ");\n";
+                break;
+            case PrimitiveKind::Bytes:
+                os << inner_indent
+                   << "field_value.value = hasten::runtime::hb1::Value::make_bytes(" << value_expr
+                   << ");\n";
+                break;
+        }
+        os << inner_indent << "values.push_back(std::move(field_value));\n";
+        os << indent << "}\n";
+        return;
+    }
+
+    if (const auto* user = boost::get<ast::UserType>(actual)) {
+        if (const auto* struct_ir = find_struct(struct_lookup, *user)) {
+            os << inner_indent << "std::vector<std::uint8_t> nested_buffer;\n";
+            os << inner_indent << "hasten::runtime::VectorSink nested_sink{nested_buffer};\n";
+            os << inner_indent << "hasten::runtime::hb1::Writer nested_writer{nested_sink};\n";
+            os << inner_indent << "if (auto res = " << encode_struct_helper(struct_ir->name) << "(" << value_expr
+               << ", nested_writer); !res) {\n";
+            os << inner_indent << "    return res;\n";
+            os << inner_indent << "}\n";
+            os << inner_indent
+               << "field_value.value = hasten::runtime::hb1::Value::make_bytes(std::move(nested_buffer));\n";
+            os << inner_indent << "values.push_back(std::move(field_value));\n";
+            os << indent << "}\n";
+            return;
+        }
+    }
+
+    os << inner_indent
+       << "return hasten::runtime::unimplemented_result(\"HB1 encode not implemented for field ''" << field.name
+       << "''\");\n";
+    os << indent << "}\n";
+}
+
+void emit_decode_field_value(std::ostream& os,
+                             int indent_level,
+                             const ir::Field& field,
+                             const ast::Type& type,
+                             const std::string& target_expr,
+                             const StructLookup& struct_lookup,
+                             const ir::Module& module,
+                             const std::string& field_value_expr,
+                             const TypeMapper& mapper)
+{
+    bool is_optional = false;
+    const ast::Type* actual = unwrap_optional_type(type, is_optional);
+    const auto indent = indentation(indent_level);
+    if (const auto* primitive = boost::get<ast::Primitive>(actual)) {
+        using ast::PrimitiveKind;
+        auto type_name = boost::apply_visitor(mapper, type);
+        switch (primitive->kind) {
+            case PrimitiveKind::Bool:
+                os << indent << target_expr << " = (" << field_value_expr
+                   << ".value.unsigned_value != 0);\n";
+                break;
+            case PrimitiveKind::I8:
+            case PrimitiveKind::I16:
+            case PrimitiveKind::I32:
+            case PrimitiveKind::I64:
+                os << indent << target_expr << " = static_cast<" << type_name
+                   << ">(" << field_value_expr << ".value.signed_value);\n";
+                break;
+            case PrimitiveKind::U8:
+            case PrimitiveKind::U16:
+            case PrimitiveKind::U32:
+            case PrimitiveKind::U64:
+                os << indent << target_expr << " = static_cast<" << type_name
+                   << ">(" << field_value_expr << ".value.unsigned_value);\n";
+                break;
+            case PrimitiveKind::F32: {
+                os << indent << "std::uint32_t bits32 = static_cast<std::uint32_t>(" << field_value_expr
+                   << ".value.unsigned_value);\n";
+                os << indent << "float decoded32 = 0.0f;\n";
+                os << indent << "std::memcpy(&decoded32, &bits32, sizeof(decoded32));\n";
+                os << indent << target_expr << " = decoded32;\n";
+                break;
+            }
+            case PrimitiveKind::F64: {
+                os << indent << "std::uint64_t bits64 = " << field_value_expr
+                   << ".value.unsigned_value;\n";
+                os << indent << "double decoded64 = 0.0;\n";
+                os << indent << "std::memcpy(&decoded64, &bits64, sizeof(decoded64));\n";
+                os << indent << target_expr << " = decoded64;\n";
+                break;
+            }
+            case PrimitiveKind::String:
+                os << indent << target_expr << " = " << field_value_expr << ".value.text;\n";
+                break;
+            case PrimitiveKind::Bytes:
+                os << indent << target_expr << " = " << field_value_expr << ".value.bytes;\n";
+                break;
+        }
+        return;
+    }
+
+    if (const auto* user = boost::get<ast::UserType>(actual)) {
+        if (const auto* struct_ir = find_struct(struct_lookup, *user)) {
+            os << indent << "{\n";
+            const auto inner_indent = indentation(indent_level + 1);
+            os << inner_indent << "auto decoded = " << decode_struct_helper(struct_ir->name) << "(";
+            os << "std::span<const std::uint8_t>(" << field_value_expr << ".value.bytes.data(), "
+               << field_value_expr << ".value.bytes.size()));\n";
+            os << inner_indent << "if (!decoded) {\n";
+            os << inner_indent << "    return std::unexpected(decoded.error());\n";
+            os << inner_indent << "}\n";
+            os << inner_indent << target_expr << " = std::move(*decoded);\n";
+            os << indent << "}\n";
+            return;
+        }
+    }
+
+    os << indent
+       << "return hasten::runtime::unimplemented_result(\"HB1 decode not implemented for field ''"
+       << field.name << "''\");\n";
+}
 
 bool is_scalar(const ast::Type& type)
 {
@@ -241,12 +544,6 @@ std::string module_base_name(const ir::Module& module)
     }
     return result;
 }
-
-struct Hb1FieldInfo {
-    hasten::runtime::hb1::WireType wire_type = hasten::runtime::hb1::WireType::Varint;
-    hasten::runtime::hb1::ValueKind value_kind = hasten::runtime::hb1::ValueKind::Unsigned;
-    bool optional = false;
-};
 
 Hb1FieldInfo describe_type(const ast::Type& type)
 {
@@ -409,17 +706,21 @@ void generate_header_includes(std::ostream& os)
     os << "#include \"hasten/runtime/channel.hpp\"\n";
     os << "#include \"hasten/runtime/executor.hpp\"\n";
     os << "#include \"hasten/runtime/result.hpp\"\n";
+    os << "#include \"hasten/runtime/rpc.hpp\"\n";
     os << "#include \"hasten/runtime/serialization/hb1.hpp\"\n";
+    os << "#include \"hasten/runtime/serialization/payload.hpp\"\n";
     os << "#include \"hasten/runtime/uds.hpp\"\n";
     os << "\n";
     os << "#include <array>\n";
     os << "#include <cstdint>\n";
+    os << "#include <cstring>\n";
     os << "#include <expected>\n";
     os << "#include <functional>\n";
     os << "#include <future>\n";
     os << "#include <map>\n";
     os << "#include <memory>\n";
     os << "#include <optional>\n";
+    os << "#include <span>\n";
     os << "#include <string>\n";
     os << "#include <vector>\n";
     os << "\n";
@@ -525,8 +826,8 @@ void generate_interface(std::ostream& os, int indent_level, const ir::Interface&
     }
     os << class_indent << "};\n\n";
 
-    os << class_indent << "void bind_" << iface.name << "(hasten::runtime::Dispatcher& dispatcher,\n"
-       << class_indent << "             std::shared_ptr<" << iface.name << "> implementation,\n"
+    os << class_indent << "void bind_" << iface.name << "(std::shared_ptr<" << iface.name
+       << "> implementation,\n"
        << class_indent << "             std::shared_ptr<hasten::runtime::Executor> executor = nullptr);\n"
        << '\n';
     os << class_indent << "std::shared_ptr<" << client_name << "> make_" << iface.name
@@ -557,7 +858,12 @@ void generate_uds_client_creation(std::ostream& os, int indent_level, const ir::
        << indent << "}\n\n";
 }
 
-void generate_metadata(std::ostream& os, int indent_level, const ir::Module& module)
+void generate_detail_namespace(std::ostream& os,
+                               int indent_level,
+                               const ir::Module& module,
+                               const StructLookup& struct_lookup,
+                               const TupleInfo& tuple_info,
+                               const TypeMapper& mapper)
 {
     const std::string indent = indentation(indent_level);
     const std::string level = indentation(1);
@@ -600,14 +906,13 @@ void generate_metadata(std::ostream& os, int indent_level, const ir::Module& mod
         os << indent << "struct " << iface_meta_name << " {\n";
         os << indent << level << "static constexpr std::uint64_t module_id = " << hash_literal(module.name) << ";\n";
         os << indent << level << "static constexpr std::uint64_t interface_id = "
-            << hash_literal(iface_full_name) << ";\n";
-        os << '\n';
+           << hash_literal(iface_full_name) << ";\n\n";
         for (const auto& method : iface.methods) {
             const auto method_meta_name = method.name + "Metadata";
             std::string method_full_name = iface_full_name + "." + method.name;
             os << indent << level << "struct " << method_meta_name << " {\n";
             os << indent << level << level << "static constexpr std::uint64_t method_id = "
-                << hash_literal(method_full_name) << ";\n";
+               << hash_literal(method_full_name) << ";\n";
             os << emit_descriptor_array(indent + "        ", "static constexpr ",
                                          method_meta_name + "RequestFields", method.parameters);
             if (!method.result_fields.empty()) {
@@ -627,6 +932,269 @@ void generate_metadata(std::ostream& os, int indent_level, const ir::Module& mod
         os << indent << "};\n\n";
     }
 
+    // Struct serializers
+    for (const auto& struct_ir : module.structs) {
+        const auto qualified = qualified_type_name(module, struct_ir.name);
+        const auto encode_name = encode_struct_helper(struct_ir.name);
+        const auto decode_name = decode_struct_helper(struct_ir.name);
+
+        os << indent << "inline hasten::runtime::Result<void> " << encode_name
+           << "(const " << qualified << "& value, hasten::runtime::hb1::Writer& writer)\n";
+        os << indent << "{\n";
+        os << indent << level << "std::vector<hasten::runtime::hb1::FieldValue> values;\n";
+        os << indent << level << "values.reserve(" << struct_ir.fields.size() << ");\n";
+        for (const auto& field : struct_ir.fields) {
+            emit_encode_field_value(os, indent_level + 1, field, field.type, "value." + field.name, struct_lookup, module);
+        }
+        os << indent << level
+           << "hasten::runtime::hb1::MessageDescriptor descriptor{" << struct_ir.name
+           << "_FieldDescriptors};\n";
+        os << indent << level << "return hasten::runtime::hb1::encode_message(descriptor, values, writer);\n";
+        os << indent << "}\n\n";
+
+        os << indent << "inline hasten::runtime::Result<" << qualified << "> " << decode_name
+           << "(std::span<const std::uint8_t> bytes)\n";
+        os << indent << "{\n";
+        os << indent << level << qualified << " value{};\n";
+        for (const auto& field : struct_ir.fields) {
+            bool optional = false;
+            unwrap_optional_type(field.type, optional);
+            const auto presence = sanitize_identifier("has_" + field.name);
+            if (!optional) {
+                os << indent << level << "bool " << presence << " = false;\n";
+            }
+        }
+        os << indent << level << "hasten::runtime::SpanSource source{bytes};\n";
+        os << indent << level << "hasten::runtime::hb1::Reader reader{source};\n";
+        os << indent << level
+           << "auto decoded = hasten::runtime::hb1::decode_message({" << struct_ir.name
+           << "_FieldDescriptors}, reader);\n";
+        os << indent << level << "if (!decoded) {\n";
+        os << indent << level << "    return std::unexpected(decoded.error());\n";
+        os << indent << level << "}\n";
+        os << indent << level << "for (const auto& field_value : *decoded) {\n";
+        os << indent << level << "    switch (field_value.id) {\n";
+        for (const auto& field : struct_ir.fields) {
+            os << indent << level << "        case " << field.id << ": {\n";
+            emit_decode_field_value(os,
+                                    indent_level + 3,
+                                    field,
+                                    field.type,
+                                    "value." + field.name,
+                                    struct_lookup,
+                                    module,
+                                    "field_value",
+                                    mapper);
+            bool optional = false;
+            unwrap_optional_type(field.type, optional);
+            if (!optional) {
+                const auto presence = sanitize_identifier("has_" + field.name);
+            os << indentation(indent_level + 3) << presence << " = true;\n";
+            }
+            os << indent << level << "            break;\n";
+            os << indent << level << "        }\n";
+        }
+        os << indent << level << "        default: break;\n";
+        os << indent << level << "    }\n";
+        os << indent << "    }\n";
+        for (const auto& field : struct_ir.fields) {
+            bool optional = false;
+            unwrap_optional_type(field.type, optional);
+            if (!optional) {
+                const auto presence = sanitize_identifier("has_" + field.name);
+                os << indent << level << "if (!" << presence << ") {\n";
+                os << indent << level
+                   << "    return hasten::runtime::unexpected_result<" << qualified
+                   << ">(hasten::runtime::ErrorCode::TransportError, \"missing field " << field.name
+                   << "\");\n";
+                os << indent << level << "}\n";
+            }
+        }
+        os << indent << level << "return value;\n";
+        os << indent << "}\n\n";
+    }
+
+    // Method helpers
+    for (const auto& iface : module.interfaces) {
+        for (const auto& method : iface.methods) {
+            const auto prefix = method_helper_prefix(iface.name, method.name);
+            const auto request_helper = "encode_" + prefix + "_request";
+            const auto decode_request_helper = "decode_" + prefix + "_request";
+            const auto request_struct = prefix + "Request";
+            const auto descriptor = iface.name + "Metadata::" + method.name + "Metadata::";
+
+            // Request encode function
+            os << indent << "inline hasten::runtime::Result<void> " << request_helper
+               << "(hasten::runtime::hb1::Writer& writer";
+            for (const auto& field : method.parameters) {
+                os << ", const " << boost::apply_visitor(mapper, field.type) << "& " << field.name;
+            }
+            os << ")\n" << indent << "{\n";
+            os << indent << level << "std::vector<hasten::runtime::hb1::FieldValue> values;\n";
+            os << indent << level << "values.reserve(" << method.parameters.size() << ");\n";
+            for (const auto& field : method.parameters) {
+                emit_encode_field_value(os, indent_level + 1, field, field.type, field.name, struct_lookup, module);
+            }
+            os << indent << level << "hasten::runtime::hb1::MessageDescriptor descriptor{" << descriptor
+               << "RequestFields};\n";
+            os << indent << level << "return hasten::runtime::hb1::encode_message(descriptor, values, writer);\n";
+            os << indent << "}\n\n";
+
+            // Request struct + decode
+            os << indent << "struct " << request_struct << " {\n";
+            for (const auto& field : method.parameters) {
+                os << indent << level << boost::apply_visitor(mapper, field.type) << " " << field.name << ";\n";
+            }
+            os << indent << "};\n\n";
+
+            os << indent << "inline hasten::runtime::Result<" << request_struct << "> "
+               << decode_request_helper << "(std::span<const std::uint8_t> bytes)\n";
+            os << indent << "{\n";
+            os << indent << level << request_struct << " request{};\n";
+            for (const auto& field : method.parameters) {
+                bool optional = false;
+                unwrap_optional_type(field.type, optional);
+                if (!optional) {
+                    os << indent << level << "bool " << sanitize_identifier("has_" + field.name) << " = false;\n";
+                }
+            }
+            os << indent << level << "hasten::runtime::SpanSource source{bytes};\n";
+            os << indent << level << "hasten::runtime::hb1::Reader reader{source};\n";
+            os << indent << level
+               << "auto decoded = hasten::runtime::hb1::decode_message({" << descriptor
+               << "RequestFields}, reader);\n";
+            os << indent << level << "if (!decoded) {\n";
+            os << indent << level << "    return std::unexpected(decoded.error());\n";
+            os << indent << level << "}\n";
+            os << indent << level << "for (const auto& field_value : *decoded) {\n";
+            os << indent << level << "    switch (field_value.id) {\n";
+            for (const auto& field : method.parameters) {
+                os << indent << level << "        case " << field.id << ": {\n";
+                emit_decode_field_value(os,
+                                        indent_level + 3,
+                                        field,
+                                        field.type,
+                                        "request." + field.name,
+                                        struct_lookup,
+                                        module,
+                                        "field_value",
+                                        mapper);
+                bool optional = false;
+                unwrap_optional_type(field.type, optional);
+                if (!optional) {
+                    os << indentation(indent_level + 3)
+                       << sanitize_identifier("has_" + field.name) << " = true;\n";
+                }
+                os << indent << level << "            break;\n";
+                os << indent << level << "        }\n";
+            }
+            os << indent << level << "        default: break;\n";
+            os << indent << level << "    }\n";
+            os << indent << "    }\n";
+            for (const auto& field : method.parameters) {
+                bool optional = false;
+                unwrap_optional_type(field.type, optional);
+                if (!optional) {
+                    os << indent << level << "if (!" << sanitize_identifier("has_" + field.name) << ") {\n";
+                    os << indent << level
+                       << "    return hasten::runtime::unexpected_result<" << request_struct
+                       << ">(hasten::runtime::ErrorCode::TransportError, \"missing parameter " << field.name
+                       << "\");\n";
+                    os << indent << level << "}\n";
+                }
+            }
+            os << indent << level << "return request;\n";
+            os << indent << "}\n\n";
+
+            // Response helpers if method returns value
+            std::vector<ir::Field> response_fields;
+            if (!method.result_fields.empty()) {
+                response_fields = method.result_fields;
+            } else if (method.result_type) {
+                response_fields = single_field_vector(*method.result_type);
+                response_fields.front().name = "value";
+            }
+
+            const auto response_type = method_result_type(method, mapper, tuple_info.lookup);
+            if (!response_fields.empty()) {
+                const auto encode_response = "encode_" + prefix + "_response";
+                const auto decode_response = "decode_" + prefix + "_response";
+
+                os << indent << "inline hasten::runtime::Result<void> " << encode_response
+                   << "(hasten::runtime::hb1::Writer& writer, const " << response_type << "& value)\n";
+                os << indent << "{\n";
+                os << indent << level << "std::vector<hasten::runtime::hb1::FieldValue> values;\n";
+                os << indent << level << "values.reserve(" << response_fields.size() << ");\n";
+                for (const auto& field : response_fields) {
+                    emit_encode_field_value(os, indent_level + 1, field, field.type, "value." + field.name, struct_lookup, module);
+                }
+                os << indent << level << "hasten::runtime::hb1::MessageDescriptor descriptor{" << descriptor
+                   << "ResponseFields};\n";
+                os << indent << level << "return hasten::runtime::hb1::encode_message(descriptor, values, writer);\n";
+                os << indent << "}\n\n";
+
+                os << indent << "inline hasten::runtime::Result<" << response_type << "> " << decode_response
+                   << "(std::span<const std::uint8_t> bytes)\n";
+                os << indent << "{\n";
+                os << indent << level << response_type << " value{};\n";
+                for (const auto& field : response_fields) {
+                    bool optional = false;
+                    unwrap_optional_type(field.type, optional);
+                    if (!optional) {
+                        os << indent << level << "bool " << sanitize_identifier("has_" + field.name) << " = false;\n";
+                    }
+                }
+                os << indent << level << "hasten::runtime::SpanSource source{bytes};\n";
+                os << indent << level << "hasten::runtime::hb1::Reader reader{source};\n";
+                os << indent << level
+                   << "auto decoded = hasten::runtime::hb1::decode_message({" << descriptor
+                   << "ResponseFields}, reader);\n";
+                os << indent << level << "if (!decoded) {\n";
+                os << indent << level << "    return std::unexpected(decoded.error());\n";
+                os << indent << level << "}\n";
+                os << indent << level << "for (const auto& field_value : *decoded) {\n";
+                os << indent << level << "    switch (field_value.id) {\n";
+                for (const auto& field : response_fields) {
+                    os << indent << level << "        case " << field.id << ": {\n";
+                    emit_decode_field_value(os,
+                                            indent_level + 3,
+                                            field,
+                                            field.type,
+                                            "value." + field.name,
+                                            struct_lookup,
+                                            module,
+                                            "field_value",
+                                            mapper);
+                    bool optional = false;
+                    unwrap_optional_type(field.type, optional);
+                    if (!optional) {
+                os << indentation(indent_level + 3)
+                   << sanitize_identifier("has_" + field.name) << " = true;\n";
+                    }
+                    os << indent << level << "            break;\n";
+                    os << indent << level << "        }\n";
+                }
+                os << indent << level << "        default: break;\n";
+                os << indent << level << "    }\n";
+                os << indent << "    }\n";
+                for (const auto& field : response_fields) {
+                    bool optional = false;
+                    unwrap_optional_type(field.type, optional);
+                    if (!optional) {
+                        os << indent << level << "if (!" << sanitize_identifier("has_" + field.name) << ") {\n";
+                        os << indent << level
+                           << "    return hasten::runtime::unexpected_result<" << response_type
+                           << ">(hasten::runtime::ErrorCode::TransportError, \"missing response field "
+                           << field.name << "\");\n";
+                        os << indent << level << "}\n";
+                    }
+                }
+                os << indent << level << "return value;\n";
+                os << indent << "}\n\n";
+            }
+        }
+    }
+
     os << indent << "}  // namespace detail\n\n";
 }
 
@@ -636,6 +1204,7 @@ std::string generate_header(const ir::Module& module, const TupleInfo& tuple_inf
     (void)options;
     std::ostringstream out;
     TypeMapper mapper;
+    auto struct_lookup = build_struct_lookup(module);
 
     generate_header_comment(out);
     generate_header_includes(out);
@@ -664,7 +1233,7 @@ std::string generate_header(const ir::Module& module, const TupleInfo& tuple_inf
         generate_uds_client_creation(out, indent_level, iface);
     }
 
-    generate_metadata(out, indent_level, module);
+    generate_detail_namespace(out, indent_level, module, struct_lookup, tuple_info, mapper);
 
     close_namespaces(out, module);
     out << '\n';
