@@ -655,6 +655,7 @@ std::string emit_descriptor_array(const std::string& indent,
                                   const std::vector<ir::Field>& fields)
 {
     std::ostringstream out;
+    TypeMapper mapper;
     out << indent << qualifier << "std::array<hasten::runtime::hb1::FieldDescriptor, "
         << fields.size() << "> " << name << " = {";
     if (fields.empty()) {
@@ -1415,11 +1416,14 @@ std::string generate_client_source(const ir::Module& module, const ir::Interface
     return out.str();
 }
 
-std::string generate_server_source(const ir::Module& module, const ir::Interface& iface,
+std::string generate_server_source(const ir::Module& module,
+                                   const ir::Interface& iface,
+                                   const TupleNameLookup& tuple_names,
                                    const GenerationOptions& options)
 {
     (void)options;
     std::ostringstream out;
+    TypeMapper mapper;
 
     out << "// Auto-generated server helpers for module " << module.name << ", interface " << iface.name
         << "\n";
@@ -1429,16 +1433,94 @@ std::string generate_server_source(const ir::Module& module, const ir::Interface
     open_namespaces(out, module);
     out << "\n";
 
-    std::string indent(module.namespace_parts.size() * 4, ' ');
-    out << indent << "void bind_" << iface.name << "(hasten::runtime::Dispatcher& dispatcher,\n"
-        << indent << "             std::shared_ptr<" << iface.name << "> implementation,\n"
+    const int indent_level = static_cast<int>(module.namespace_parts.size());
+    const auto indent = indentation(indent_level);
+    const auto body_indent = indentation(indent_level + 1);
+    const auto inner_indent = indentation(indent_level + 2);
+    const auto case_indent = indentation(indent_level + 3);
+    const auto case_body_indent = indentation(indent_level + 4);
+
+    out << indent << "void bind_" << iface.name << "(std::shared_ptr<" << iface.name
+        << "> implementation,\n"
         << indent << "             std::shared_ptr<hasten::runtime::Executor> executor)\n"
-        << indent << "{\n"
-        << indent << indent << "(void)dispatcher;\n"
-        << indent << indent << "(void)implementation;\n"
-        << indent << indent << "(void)executor;\n"
-        << indent << indent << "// TODO: Register interface with runtime dispatcher once transport is ready.\n"
-        << indent << "}\n\n";
+        << indent << "{\n";
+    out << body_indent << "if (!implementation) {\n";
+    out << body_indent << "    return;\n";
+    out << body_indent << "}\n";
+    out << body_indent << "if (!executor) {\n";
+    out << body_indent << "    executor = hasten::runtime::make_default_executor();\n";
+    out << body_indent << "}\n";
+    out << body_indent << "hasten::runtime::rpc::register_handler(detail::" << iface.name
+        << "Metadata::interface_id,\n";
+    out << body_indent
+        << "    [impl = std::move(implementation), exec = std::move(executor)](\n";
+    out << body_indent
+        << "        std::shared_ptr<hasten::runtime::rpc::Request> request,\n";
+    out << body_indent
+        << "        hasten::runtime::rpc::Responder responder) mutable {\n";
+    out << body_indent << "        exec->schedule([impl, req = std::move(request), responder = std::move(responder)]() mutable {\n";
+    out << body_indent << "            switch (req->method_id) {\n";
+
+    for (const auto& method : iface.methods) {
+        const auto meta_prefix = "detail::" + iface.name + std::string("Metadata::") + method.name + "Metadata";
+        const auto helper_prefix = method_helper_prefix(iface.name, method.name);
+        const auto decode_request_helper = "detail::decode_" + helper_prefix + "_request";
+        const auto encode_response_helper = "detail::encode_" + helper_prefix + "_response";
+        const auto result_type = method_result_type(method, mapper, tuple_names);
+        const bool has_response = !method.result_fields.empty() || method.result_type.has_value();
+
+        out << case_indent << "case " << meta_prefix << "::method_id: {\n";
+        out << case_body_indent << "auto decoded = " << decode_request_helper << "(req->payload);\n";
+        out << case_body_indent << "if (!decoded) {\n";
+        out << case_body_indent
+            << "    responder(hasten::runtime::rpc::Response{hasten::runtime::rpc::Status::InvalidRequest, {}});\n";
+        out << case_body_indent << "    return;\n";
+        out << case_body_indent << "}\n";
+        out << case_body_indent << "auto request_data = std::move(*decoded);\n";
+        out << case_body_indent << "auto result = impl->" << method.name << "(";
+        for (std::size_t i = 0; i < method.parameters.size(); ++i) {
+            if (i) {
+                out << ", ";
+            }
+            out << "request_data." << method.parameters[i].name;
+        }
+        out << ");\n";
+        out << case_body_indent << "if (!result) {\n";
+        out << case_body_indent
+            << "    responder(hasten::runtime::rpc::Response{hasten::runtime::rpc::Status::ApplicationError, {}});\n";
+        out << case_body_indent << "    return;\n";
+        out << case_body_indent << "}\n";
+        if (has_response) {
+            out << case_body_indent << "std::vector<std::uint8_t> response_body;\n";
+            out << case_body_indent << "hasten::runtime::VectorSink response_sink{response_body};\n";
+            out << case_body_indent << "hasten::runtime::hb1::Writer response_writer{response_sink};\n";
+            out << case_body_indent << "auto response_value = std::move(*result);\n";
+            out << case_body_indent << "if (auto encode_res = " << encode_response_helper
+                << "(response_writer, response_value); !encode_res) {\n";
+            out << case_body_indent
+                << "    responder(hasten::runtime::rpc::Response{hasten::runtime::rpc::Status::InternalError, {}});\n";
+            out << case_body_indent << "    return;\n";
+            out << case_body_indent << "}\n";
+            out << case_body_indent
+                << "responder(hasten::runtime::rpc::Response{hasten::runtime::rpc::Status::Ok, std::move(response_body)});\n";
+        } else {
+            out << case_body_indent
+                << "responder(hasten::runtime::rpc::Response{hasten::runtime::rpc::Status::Ok, {}});\n";
+        }
+        out << case_body_indent << "return;\n";
+        out << case_indent << "}\n";
+    }
+
+    out << case_indent << "default: {\n";
+    out << case_body_indent
+        << "responder(hasten::runtime::rpc::Response{hasten::runtime::rpc::Status::NotFound, {}});\n";
+    out << case_body_indent << "return;\n";
+    out << case_indent << "}\n";
+
+    out << body_indent << "            }\n";
+    out << body_indent << "        });\n";
+    out << body_indent << "    });\n";
+    out << indent << "}\n\n";
 
     close_namespaces(out, module);
     out << '\n';
@@ -1494,7 +1576,7 @@ std::expected<Emitter::OutputFiles, std::string> Emitter::emit_module(const ir::
         }
 
         // server
-        result = write_file_if_changed(server_path, generate_server_source(module, iface, _options));
+        result = write_file_if_changed(server_path, generate_server_source(module, iface, tuple_info.lookup, _options));
         if (!result) {
             return std::unexpected(result.error());
         }
