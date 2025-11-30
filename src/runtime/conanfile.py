@@ -1,9 +1,5 @@
 from conan import ConanFile
-from conan.tools.cmake import CMake, CMakeToolchain, CMakeDeps
-from conan.tools.layout import cmake_layout
-from conan.tools.files import copy
-import os
-
+from conan.tools.cmake import CMakeToolchain, CMake, cmake_layout, CMakeDeps
 
 class HastenRuntimeConan(ConanFile):
     name = "hasten_runtime"
@@ -31,7 +27,6 @@ class HastenRuntimeConan(ConanFile):
     def package(self):
         cmake = CMake(self)
         cmake.install()
-        copy(self, "LICENSE", dst=os.path.join(self.package_folder, "licenses"), src=self.source_folder)
 
     def package_info(self):
         self.cpp_info.libs = ["hasten_runtime"]

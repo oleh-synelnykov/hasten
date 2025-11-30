@@ -45,6 +45,6 @@ private:
     bool stopping_ = false;
 };
 
-std::shared_ptr<Executor> make_default_executor();
+std::shared_ptr<Executor> make_default_executor(std::size_t thread_count = 0);
 
 }  // namespace hasten::runtime

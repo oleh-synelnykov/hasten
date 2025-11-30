@@ -11,6 +11,7 @@ namespace hasten::runtime
 {
 
 class Channel;
+class Dispatcher;
 
 struct ContextConfig {
     bool managed_reactor = true;
@@ -30,6 +31,7 @@ public:
     Result<void> connect(const std::string& path);
     Result<void> attach_channel(std::shared_ptr<Channel> channel, bool server_side);
     void set_executor(std::shared_ptr<Executor> exec);
+    std::shared_ptr<Dispatcher> get_dispatcher() const;
 
     void start();
     void stop();

@@ -914,19 +914,27 @@ void generate_detail_namespace(std::ostream& os,
             os << indent << level << "struct " << method_meta_name << " {\n";
             os << indent << level << level << "static constexpr std::uint64_t method_id = "
                << hash_literal(method_full_name) << ";\n";
-            os << emit_descriptor_array(indent + "        ", "static constexpr ",
-                                         method_meta_name + "RequestFields", method.parameters);
+            os << emit_descriptor_array(indent + "        ",
+                                         "static constexpr ",
+                                         "RequestFields",
+                                         method.parameters);
             if (!method.result_fields.empty()) {
-                os << emit_descriptor_array(indent + "        ", "static constexpr ",
-                                             method_meta_name + "ResponseFields", method.result_fields);
+                os << emit_descriptor_array(indent + "        ",
+                                             "static constexpr ",
+                                             "ResponseFields",
+                                             method.result_fields);
             } else if (method.result_type) {
                 auto single = single_field_vector(*method.result_type);
-                os << emit_descriptor_array(indent + "        ", "static constexpr ",
-                                             method_meta_name + "ResponseFields", single);
+                os << emit_descriptor_array(indent + "        ",
+                                             "static constexpr ",
+                                             "ResponseFields",
+                                             single);
             } else {
                 std::vector<ir::Field> none;
-                os << emit_descriptor_array(indent + "        ", "static constexpr ",
-                                             method_meta_name + "ResponseFields", none);
+                os << emit_descriptor_array(indent + "        ",
+                                             "static constexpr ",
+                                             "ResponseFields",
+                                             none);
             }
             os << indent << "    };\n\n";
         }
@@ -1022,7 +1030,10 @@ void generate_detail_namespace(std::ostream& os,
             const auto request_helper = "encode_" + prefix + "_request";
             const auto decode_request_helper = "decode_" + prefix + "_request";
             const auto request_struct = prefix + "Request";
-            const auto descriptor = iface.name + "Metadata::" + method.name + "Metadata::";
+            const auto method_meta_name = method.name + std::string("Metadata");
+            const auto method_scope = iface.name + "Metadata::" + method_meta_name + "::";
+            const auto request_field_symbol = method_scope + "RequestFields";
+            const auto response_field_symbol = method_scope + "ResponseFields";
 
             // Request encode function
             os << indent << "inline hasten::runtime::Result<void> " << request_helper
@@ -1036,8 +1047,8 @@ void generate_detail_namespace(std::ostream& os,
             for (const auto& field : method.parameters) {
                 emit_encode_field_value(os, indent_level + 1, field, field.type, field.name, struct_lookup, module);
             }
-            os << indent << level << "hasten::runtime::hb1::MessageDescriptor descriptor{" << descriptor
-               << "RequestFields};\n";
+            os << indent << level << "hasten::runtime::hb1::MessageDescriptor descriptor{" << request_field_symbol
+               << "};\n";
             os << indent << level << "return hasten::runtime::hb1::encode_message(descriptor, values, writer);\n";
             os << indent << "}\n\n";
 
@@ -1062,8 +1073,8 @@ void generate_detail_namespace(std::ostream& os,
             os << indent << level << "hasten::runtime::SpanSource source{bytes};\n";
             os << indent << level << "hasten::runtime::hb1::Reader reader{source};\n";
             os << indent << level
-               << "auto decoded = hasten::runtime::hb1::decode_message({" << descriptor
-               << "RequestFields}, reader);\n";
+               << "auto decoded = hasten::runtime::hb1::decode_message({" << request_field_symbol
+               << "}, reader);\n";
             os << indent << level << "if (!decoded) {\n";
             os << indent << level << "    return std::unexpected(decoded.error());\n";
             os << indent << level << "}\n";
@@ -1129,8 +1140,8 @@ void generate_detail_namespace(std::ostream& os,
                 for (const auto& field : response_fields) {
                     emit_encode_field_value(os, indent_level + 1, field, field.type, "value." + field.name, struct_lookup, module);
                 }
-                os << indent << level << "hasten::runtime::hb1::MessageDescriptor descriptor{" << descriptor
-                   << "ResponseFields};\n";
+                os << indent << level << "hasten::runtime::hb1::MessageDescriptor descriptor{" << response_field_symbol
+                   << "};\n";
                 os << indent << level << "return hasten::runtime::hb1::encode_message(descriptor, values, writer);\n";
                 os << indent << "}\n\n";
 
@@ -1148,8 +1159,8 @@ void generate_detail_namespace(std::ostream& os,
                 os << indent << level << "hasten::runtime::SpanSource source{bytes};\n";
                 os << indent << level << "hasten::runtime::hb1::Reader reader{source};\n";
                 os << indent << level
-                   << "auto decoded = hasten::runtime::hb1::decode_message({" << descriptor
-                   << "ResponseFields}, reader);\n";
+                   << "auto decoded = hasten::runtime::hb1::decode_message({" << response_field_symbol
+                   << "}, reader);\n";
                 os << indent << level << "if (!decoded) {\n";
                 os << indent << level << "    return std::unexpected(decoded.error());\n";
                 os << indent << level << "}\n";
@@ -1283,7 +1294,10 @@ std::string generate_client_source(const ir::Module& module, const ir::Interface
         const auto result_type = method_result_type(method, mapper, tuple_names);
         const auto callback_type =
             fmt::format("std::function<void(hasten::runtime::Result<{}>)>", result_type);
-        const auto meta_prefix = "detail::" + iface.name + std::string("Metadata::") + method.name + "Metadata";
+        const auto method_meta_name = method.name + std::string("Metadata");
+        const auto meta_prefix = "detail::" + iface.name + std::string("Metadata::") + method_meta_name + "::";
+        const auto request_field_symbol = meta_prefix + "RequestFields";
+        const auto response_field_symbol = meta_prefix + "ResponseFields";
         const auto helper_prefix = method_helper_prefix(iface.name, method.name);
         const auto encode_request_helper = "detail::encode_" + helper_prefix + "_request";
         const auto decode_response_helper = "detail::decode_" + helper_prefix + "_response";
@@ -1305,15 +1319,15 @@ std::string generate_client_source(const ir::Module& module, const ir::Interface
         out << nested_indent << "return;\n";
         out << body_indent << "}\n";
         out << body_indent << "auto stream_id = dispatcher_->open_stream();\n";
-        out << body_indent << "std::vector<std::uint8_t> payload;\n";
-        out << body_indent << "payload.reserve(64);\n";
-        out << body_indent << "detail::append_varint(payload, detail::" << iface.name
+        out << body_indent << "std::vector<std::uint8_t> frame_payload;\n";
+        out << body_indent << "frame_payload.reserve(64);\n";
+        out << body_indent << "detail::append_varint(frame_payload, detail::" << iface.name
             << "Metadata::module_id);\n";
-        out << body_indent << "detail::append_varint(payload, detail::" << iface.name
+        out << body_indent << "detail::append_varint(frame_payload, detail::" << iface.name
             << "Metadata::interface_id);\n";
-        out << body_indent << "detail::append_varint(payload, " << meta_prefix << "::method_id);\n";
-        out << body_indent << "detail::append_varint(payload, static_cast<std::uint64_t>(hasten::runtime::Encoding::Hb1));\n";
-        out << body_indent << "detail::append_varint(payload, stream_id);\n";
+        out << body_indent << "detail::append_varint(frame_payload, " << meta_prefix << "method_id);\n";
+        out << body_indent << "detail::append_varint(frame_payload, static_cast<std::uint64_t>(hasten::runtime::Encoding::Hb1));\n";
+        out << body_indent << "detail::append_varint(frame_payload, stream_id);\n";
         out << body_indent << "std::vector<std::uint8_t> message_body;\n";
         out << body_indent << "hasten::runtime::VectorSink sink{message_body};\n";
         out << body_indent << "hasten::runtime::hb1::Writer writer{sink};\n";
@@ -1328,7 +1342,7 @@ std::string generate_client_source(const ir::Module& module, const ir::Interface
         out << nested_indent << "}\n";
         out << nested_indent << "return;\n";
         out << body_indent << "}\n";
-        out << body_indent << "payload.insert(payload.end(), message_body.begin(), message_body.end());\n";
+        out << body_indent << "frame_payload.insert(frame_payload.end(), message_body.begin(), message_body.end());\n";
         out << body_indent << "dispatcher_->set_response_handler(stream_id,\n";
         out << body_indent
             << "    [dispatcher = dispatcher_, callback_fn, stream_id](hasten::runtime::rpc::Response response) mutable {\n";
@@ -1359,7 +1373,7 @@ std::string generate_client_source(const ir::Module& module, const ir::Interface
         out << body_indent << "frame.header.type = hasten::runtime::FrameType::Data;\n";
         out << body_indent << "frame.header.flags = hasten::runtime::FrameFlagEndStream;\n";
         out << body_indent << "frame.header.stream_id = stream_id;\n";
-        out << body_indent << "frame.payload = std::move(payload);\n";
+        out << body_indent << "frame.payload = std::move(frame_payload);\n";
         out << body_indent << "if (auto res = channel_->send(std::move(frame)); !res) {\n";
         out << nested_indent << "dispatcher_->take_response_handler(stream_id);\n";
         out << nested_indent << "dispatcher_->close_stream(stream_id);\n";
@@ -1462,14 +1476,15 @@ std::string generate_server_source(const ir::Module& module,
     out << body_indent << "            switch (req->method_id) {\n";
 
     for (const auto& method : iface.methods) {
-        const auto meta_prefix = "detail::" + iface.name + std::string("Metadata::") + method.name + "Metadata";
         const auto helper_prefix = method_helper_prefix(iface.name, method.name);
         const auto decode_request_helper = "detail::decode_" + helper_prefix + "_request";
         const auto encode_response_helper = "detail::encode_" + helper_prefix + "_response";
         const auto result_type = method_result_type(method, mapper, tuple_names);
         const bool has_response = !method.result_fields.empty() || method.result_type.has_value();
+        const auto method_meta_name = method.name + std::string("Metadata");
+        const auto meta_prefix = "detail::" + iface.name + std::string("Metadata::") + method_meta_name + "::";
 
-        out << case_indent << "case " << meta_prefix << "::method_id: {\n";
+        out << case_indent << "case " << meta_prefix << "method_id: {\n";
         out << case_body_indent << "auto decoded = " << decode_request_helper << "(req->payload);\n";
         out << case_body_indent << "if (!decoded) {\n";
         out << case_body_indent

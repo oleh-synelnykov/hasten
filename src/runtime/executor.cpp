@@ -73,10 +73,12 @@ void ThreadPoolExecutor::worker_loop()
     }
 }
 
-std::shared_ptr<Executor> make_default_executor()
+std::shared_ptr<Executor> make_default_executor(std::size_t thread_count)
 {
-    auto threads = std::max<std::size_t>(1, std::thread::hardware_concurrency());
-    return std::make_shared<ThreadPoolExecutor>(threads);
+    if (thread_count == 0) {
+        thread_count = std::max<std::size_t>(1, std::thread::hardware_concurrency());
+    }
+    return std::make_shared<ThreadPoolExecutor>(thread_count);
 }
 
 }  // namespace hasten::runtime

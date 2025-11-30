@@ -314,8 +314,13 @@ public:
     {
         executor_ = std::move(exec);
         if (!executor_) {
-            executor_ = make_default_executor();
+            executor_ = make_default_executor(config_.worker_threads);
         }
+    }
+
+    std::shared_ptr<Dispatcher> dispatcher_ptr() const
+    {
+        return dispatcher_;
     }
 
     void start()
@@ -706,6 +711,11 @@ Result<void> Context::attach_channel(std::shared_ptr<Channel> channel, bool serv
 void Context::set_executor(std::shared_ptr<Executor> exec)
 {
     impl_->set_executor(std::move(exec));
+}
+
+std::shared_ptr<Dispatcher> Context::get_dispatcher() const
+{
+    return impl_->dispatcher_ptr();
 }
 
 void Context::start()

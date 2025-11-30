@@ -56,6 +56,29 @@ cmake --build --preset=conan-<release|debug>
 ./build/<Debug|Release>/tests/test_hasten
 ```
 
+### Examples
+
+#### Echo
+
+See the echo example in `examples/echo/` for a trivial echo-server setup using the runtime.
+To build it, first create a hasten_runtime package:
+
+```bash
+cd src/runtime
+conan create .
+```
+Add `-s build_type=Debug` for the debug builds. If any dependencies are missing, add `--build=missing`.
+
+Once created, the package will be available in your local Conan cache and can be used by other projects. Now the echo example can be built:
+
+```bash
+cd examples/echo     # add ../.. if you're still in src/runtime
+conan install .      # add -s build_type=Debug for debug build
+cmake --preset=conan-release .         # or conan-debug for debug build
+cmake --build --preset=conan-release   # or conan-debug for debug build
+```
+Once build succeeds the `echo_client` and `echo_server` executables will be available in the build directory (i.e. ./build/<Debug|Release>).
+
 ## Tooling
 
 ### clangd
