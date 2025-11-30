@@ -2,6 +2,7 @@
 
 #include "hasten/runtime/channel.hpp"
 #include "hasten/runtime/frame.hpp"
+#include "hasten/runtime/rpc.hpp"
 #include "hasten/runtime/uds.hpp"
 
 #include <algorithm>
@@ -15,6 +16,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <utility>
@@ -24,6 +26,92 @@ namespace hasten::runtime
 {
 namespace
 {
+
+Result<std::uint64_t> read_varint(const std::vector<std::uint8_t>& buffer, std::size_t& offset)
+{
+    std::uint64_t result = 0;
+    int shift = 0;
+    while (offset < buffer.size()) {
+        std::uint8_t byte = buffer[offset++];
+        result |= static_cast<std::uint64_t>(byte & 0x7F) << shift;
+        if ((byte & 0x80) == 0) {
+            return result;
+        }
+        shift += 7;
+        if (shift >= 64) {
+            return unexpected_result<std::uint64_t>(ErrorCode::TransportError, "varint too long");
+        }
+    }
+    return unexpected_result<std::uint64_t>(ErrorCode::TransportError, "truncated varint");
+}
+
+struct ParsedRequest {
+    rpc::Request request;
+    std::uint64_t request_id = 0;
+};
+
+Result<ParsedRequest> parse_rpc_request(const std::vector<std::uint8_t>& payload)
+{
+    std::size_t offset = 0;
+    auto module_id = read_varint(payload, offset);
+    if (!module_id) {
+        return std::unexpected(module_id.error());
+    }
+    auto interface_id = read_varint(payload, offset);
+    if (!interface_id) {
+        return std::unexpected(interface_id.error());
+    }
+    auto method_id = read_varint(payload, offset);
+    if (!method_id) {
+        return std::unexpected(method_id.error());
+    }
+    auto encoding_id = read_varint(payload, offset);
+    if (!encoding_id) {
+        return std::unexpected(encoding_id.error());
+    }
+    Encoding encoding = Encoding::Hb1;
+    if (*encoding_id == static_cast<std::uint64_t>(Encoding::Hb1)) {
+        encoding = Encoding::Hb1;
+    } else {
+        return unexpected_result<ParsedRequest>(ErrorCode::TransportError, "unsupported encoding");
+    }
+    auto request_id = read_varint(payload, offset);
+    if (!request_id) {
+        return std::unexpected(request_id.error());
+    }
+
+    rpc::Request req;
+    req.module_id = *module_id;
+    req.interface_id = *interface_id;
+    req.method_id = *method_id;
+    req.encoding = encoding;
+    if (offset <= payload.size()) {
+        req.payload_storage.assign(payload.begin() + static_cast<std::ptrdiff_t>(offset), payload.end());
+        req.payload = req.payload_storage;
+    }
+
+    ParsedRequest parsed;
+    parsed.request = std::move(req);
+    parsed.request_id = *request_id;
+    return parsed;
+}
+
+std::vector<std::uint8_t> build_response_payload(rpc::Status status,
+                                                 std::span<const std::uint8_t> body)
+{
+    std::vector<std::uint8_t> payload;
+    auto append_varint = [&payload](std::uint64_t value) {
+        while (value >= 0x80) {
+            payload.push_back(static_cast<std::uint8_t>(value | 0x80));
+            value >>= 7;
+        }
+        payload.push_back(static_cast<std::uint8_t>(value));
+    };
+    append_varint(static_cast<std::uint64_t>(Encoding::Hb1));
+    payload.push_back(static_cast<std::uint8_t>(status));
+    payload.insert(payload.end(), body.begin(), body.end());
+    return payload;
+}
 
 class Session : public std::enable_shared_from_this<Session>
 {
@@ -415,7 +503,7 @@ private:
                 handle_error(session, frame);
                 break;
             case FrameType::Data:
-                handle_data(session, frame);
+                handle_data(session, std::move(frame));
                 break;
         }
     }
@@ -464,20 +552,52 @@ private:
                      frame.payload.size());
     }
 
-    void handle_data(const std::shared_ptr<Session>&, const Frame& frame)
+    void handle_data(const std::shared_ptr<Session>& session, Frame frame)
     {
-        if (executor_) {
-            executor_->schedule([stream = frame.header.stream_id, len = frame.header.length]() {
-                std::fprintf(stderr,
-                             "hasten runtime: received DATA frame stream=%" PRIu64 " len=%u (no handler bound)\n",
-                             static_cast<std::uint64_t>(stream),
-                             len);
-            });
-        } else {
+        if (session->kind() != Session::Kind::Server) {
             std::fprintf(stderr,
-                         "hasten runtime: received DATA frame stream=%" PRIu64 " len=%u (no handler bound)\n",
+                         "hasten runtime: received client DATA frame stream=%" PRIu64 " len=%u (ignored)\n",
                          static_cast<std::uint64_t>(frame.header.stream_id),
                          frame.header.length);
+            return;
+        }
+
+        auto parsed = parse_rpc_request(frame.payload);
+        if (!parsed) {
+            send_rpc_response(session, frame.header.stream_id, rpc::Response{rpc::Status::InvalidRequest, {}});
+            return;
+        }
+
+        auto handler = rpc::find_handler(parsed->request.interface_id);
+        if (!handler) {
+            send_rpc_response(session, frame.header.stream_id, rpc::Response{rpc::Status::NotFound, {}});
+            return;
+        }
+
+        auto request_ptr = std::make_shared<rpc::Request>(std::move(parsed->request));
+        auto weak_session = std::weak_ptr<Session>(session);
+        auto stream_id = frame.header.stream_id;
+
+        auto responder = [weak_session, stream_id, this](rpc::Response response) {
+            if (auto locked = weak_session.lock()) {
+                send_rpc_response(locked, stream_id, std::move(response));
+            }
+        };
+
+        (*handler)(std::move(request_ptr), std::move(responder));
+    }
+
+    void send_rpc_response(const std::shared_ptr<Session>& session,
+                           std::uint64_t stream_id,
+                           rpc::Response response)
+    {
+        Frame reply;
+        reply.header.type = FrameType::Data;
+        reply.header.flags = FrameFlagEndStream;
+        reply.header.stream_id = stream_id;
+        reply.payload = build_response_payload(response.status, response.body);
+        if (auto res = session->send(std::move(reply)); !res) {
+            handle_session_error(session, res.error());
         }
     }
 

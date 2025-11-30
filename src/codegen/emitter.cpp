@@ -565,28 +565,28 @@ void generate_metadata(std::ostream& os, int indent_level, const ir::Module& mod
     os << indent << "namespace detail {\n\n";
 
     os << indent << "inline void append_varint(std::vector<std::uint8_t>& buffer, std::uint64_t value) {\n";
-    os << indent << "    while (value >= 0x80) {\n";
-    os << indent << "        buffer.push_back(static_cast<std::uint8_t>(value | 0x80));\n";
-    os << indent << "        value >>= 7;\n";
-    os << indent << "    }\n";
-    os << indent << "    buffer.push_back(static_cast<std::uint8_t>(value));\n";
+    os << indent << level << "while (value >= 0x80) {\n";
+    os << indent << level << level << "buffer.push_back(static_cast<std::uint8_t>(value | 0x80));\n";
+    os << indent << level << level << "value >>= 7;\n";
+    os << indent << level << "}\n";
+    os << indent << level << "buffer.push_back(static_cast<std::uint8_t>(value));\n";
     os << indent << "}\n";
 
     os << indent << "inline hasten::runtime::Result<std::uint64_t> read_varint(const std::vector<std::uint8_t>& buffer, std::size_t& offset) {\n";
-    os << indent << "    std::uint64_t result = 0;\n";
-    os << indent << "    int shift = 0;\n";
-    os << indent << "    while (offset < buffer.size()) {\n";
-    os << indent << "        std::uint8_t byte = buffer[offset++];\n";
-    os << indent << "        result |= static_cast<std::uint64_t>(byte & 0x7F) << shift;\n";
-    os << indent << "        if ((byte & 0x80) == 0) {\n";
-    os << indent << "            return result;\n";
-    os << indent << "        }\n";
-    os << indent << "        shift += 7;\n";
-    os << indent << "        if (shift >= 64) {\n";
-    os << indent << "            return hasten::runtime::unexpected_result<std::uint64_t>(hasten::runtime::ErrorCode::TransportError, \"varint too long\");\n";
-    os << indent << "        }\n";
-    os << indent << "    }\n";
-    os << indent << "    return hasten::runtime::unexpected_result<std::uint64_t>(hasten::runtime::ErrorCode::TransportError, \"truncated varint\");\n";
+    os << indent << level << "std::uint64_t result = 0;\n";
+    os << indent << level << "int shift = 0;\n";
+    os << indent << level << "while (offset < buffer.size()) {\n";
+    os << indent << level << level << "std::uint8_t byte = buffer[offset++];\n";
+    os << indent << level << level << "result |= static_cast<std::uint64_t>(byte & 0x7F) << shift;\n";
+    os << indent << level << level << "if ((byte & 0x80) == 0) {\n";
+    os << indent << level << level << level << "return result;\n";
+    os << indent << level << level << "}\n";
+    os << indent << level << level << "shift += 7;\n";
+    os << indent << level << level << "if (shift >= 64) {\n";
+    os << indent << level << level << level << "return hasten::runtime::unexpected_result<std::uint64_t>(hasten::runtime::ErrorCode::TransportError, \"varint too long\");\n";
+    os << indent << level << level << "}\n";
+    os << indent << level << "}\n";
+    os << indent << level << "return hasten::runtime::unexpected_result<std::uint64_t>(hasten::runtime::ErrorCode::TransportError, \"truncated varint\");\n";
     os << indent << "}\n\n";
 
     for (const auto& struct_ir : module.structs) {

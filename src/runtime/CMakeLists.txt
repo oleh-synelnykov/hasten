@@ -4,6 +4,7 @@ add_library(hasten_runtime STATIC
     context.cpp
     frame.cpp
     executor.cpp
+    rpc.cpp
     serialization/hb1.cpp
     uds.cpp
 )
